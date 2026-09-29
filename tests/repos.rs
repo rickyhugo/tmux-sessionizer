@@ -127,7 +127,7 @@ fn find_repos_includes_worktrees_with_relative_paths() {
 }
 
 #[test]
-fn find_repos_excludes_linked_worktree() {
+fn find_repos_includes_linked_worktree_as_separate_session() {
     let dir = tempdir().unwrap();
     let search = dir.path().join("search");
     fs::create_dir_all(&search).unwrap();
@@ -163,10 +163,15 @@ fn find_repos_excludes_linked_worktree() {
         repos.keys().collect::<Vec<_>>()
     );
     assert!(
-        !repos.contains_key("linked"),
-        "linked worktree should not appear in picker results, got: {:?}",
+        repos.contains_key("linked"),
+        "linked worktree should appear in picker results, got: {:?}",
         repos.keys().collect::<Vec<_>>()
     );
+    assert_eq!(repos.len(), 2);
+    let SessionType::Git(linked_session) = &repos["linked"][0].session_type else {
+        panic!("linked should be a Git session");
+    };
+    assert_eq!(linked_session.path, linked);
 }
 
 #[test]
@@ -215,7 +220,7 @@ fn find_repos_worktree_entry_is_a_worktree() {
     };
     assert!(
         !whole_repo.is_worktree().unwrap(),
-        "the bare repo itself is not a worktree; opening it is what fans out into per-worktree windows"
+        "the bare repo itself is not a worktree"
     );
 }
 

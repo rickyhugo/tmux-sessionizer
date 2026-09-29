@@ -1,13 +1,6 @@
 use std::{env, os::unix::process::CommandExt, path::Path, process};
 
-use error_stack::ResultExt;
-
-use crate::repos::RepoProvider;
-use crate::{
-    configs::Config,
-    dirty_paths::DirtyUtf8Path,
-    error::{Result, TmsError},
-};
+use crate::{configs::Config, dirty_paths::DirtyUtf8Path, error::Result};
 
 #[derive(Clone)]
 pub struct Tmux {
@@ -243,61 +236,6 @@ impl Tmux {
 
     pub fn capture_pane(&self, target_pane: &str) -> process::Output {
         self.execute_tmux_command(&["capture-pane", "-ep", "-t", target_pane])
-    }
-
-    pub fn move_window(&self, source_window: &str, target_window: &str) -> process::Output {
-        self.execute_tmux_command(&["move-window", "-s", source_window, "-t", target_window])
-    }
-
-    pub fn set_up_tmux_env(&self, repo: &RepoProvider, repo_name: &str) -> Result<()> {
-        if repo.is_worktree() {
-            return Ok(());
-        }
-        let worktrees = repo.worktrees().change_context(TmsError::GitError)?;
-        let worktrees = worktrees
-            .iter()
-            // check only for non prunable worktrees
-            .filter(|worktree| !worktree.is_prunable())
-            .collect::<Vec<_>>();
-        let mut windows = Vec::new();
-        if worktrees.is_empty() {
-            if !repo.is_bare() {
-                return Ok(());
-            }
-            if let Some((name, path)) = repo.add_worktree(repo.path())? {
-                windows.push((name, path));
-            }
-        }
-
-        // Moves the inital window to index 0 so it doesn't clash with tmux configs which use
-        // index 1 as the start
-        if repo.is_bare() {
-            self.move_window(&format!("{repo_name}:^"), &format!("{repo_name}:0"));
-        }
-
-        // Puts the main or master branch as the first window
-        for tree in worktrees {
-            let window_name = tree.name();
-            let path = tree.path()?;
-            if window_name == "main" || window_name == "master" {
-                windows.insert(0, (window_name, path));
-            } else {
-                windows.push((window_name, path));
-            }
-        }
-
-        // Creates the windows making sure master/main is first
-        for (window_name, path) in windows {
-            let path_to_tree = path.to_string()?;
-
-            self.new_window(Some(&window_name), Some(&path_to_tree), Some(repo_name));
-        }
-
-        // Kill that first initial window
-        if repo.is_bare() {
-            self.kill_window(&format!("{repo_name}:^"));
-        }
-        Ok(())
     }
 }
 

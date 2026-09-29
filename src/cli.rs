@@ -741,7 +741,7 @@ fn clone_repo_command(args: &CloneRepoCommand, config: Config, tmux: &Tmux) -> R
 
     let previous_session = tmux.current_session("#{session_name}");
 
-    let repo = RepoProvider::open(git_clone(&args.repository, &path)?, &config)?;
+    git_clone(&args.repository, &path)?;
 
     let mut session_name = repo_name.to_string();
 
@@ -767,7 +767,6 @@ fn clone_repo_command(args: &CloneRepoCommand, config: Config, tmux: &Tmux) -> R
     }
 
     tmux.new_session(Some(&session_name), Some(&path.display().to_string()));
-    tmux.set_up_tmux_env(&repo, &session_name)?;
     if switch {
         tmux.switch_to_session(&session_name);
     }
@@ -795,8 +794,7 @@ fn init_repo_command(args: &InitRepoCommand, config: Config, tmux: &Tmux) -> Res
     };
     path.push(&args.repository);
 
-    let repo = gix::init(&path).change_context(TmsError::GitError)?;
-    let repo = RepoProvider::Git(Box::new(repo));
+    gix::init(&path).change_context(TmsError::GitError)?;
 
     let mut session_name = args.repository.to_string();
 
@@ -813,7 +811,6 @@ fn init_repo_command(args: &InitRepoCommand, config: Config, tmux: &Tmux) -> Res
     }
 
     tmux.new_session(Some(&session_name), Some(&path.display().to_string()));
-    tmux.set_up_tmux_env(&repo, &session_name)?;
     tmux.switch_to_session(&session_name);
 
     Ok(())

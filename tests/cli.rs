@@ -1,7 +1,7 @@
 use assert_cmd::Command;
 use pretty_assertions::assert_eq;
 use ratatui::style::Color;
-use std::{fs, str::FromStr};
+use std::{fs, os::unix::fs::PermissionsExt, process::Command as ProcessCommand, str::FromStr};
 use tempfile::tempdir;
 use tms::configs::{
     CloneRepoSwitchConfig, Config, PickerColorConfig, SearchDirectory, SessionSortOrderConfig,
@@ -118,5 +118,80 @@ fn tms_config() -> anyhow::Result<()> {
         "tms config behaves as intended"
     );
 
+    Ok(())
+}
+
+#[test]
+fn opening_repo_and_worktree_creates_one_session_each_without_extra_windows() -> anyhow::Result<()>
+{
+    let directory = tempdir()?;
+    let repo = directory.path().join("repo");
+    let worktree = directory.path().join("worktree");
+    fs::create_dir(&repo)?;
+    assert!(ProcessCommand::new("git")
+        .args(["init", "-b", "main"])
+        .current_dir(&repo)
+        .status()?
+        .success());
+    assert!(ProcessCommand::new("git")
+        .args(["commit", "--allow-empty", "-m", "init"])
+        .current_dir(&repo)
+        .env("GIT_AUTHOR_NAME", "tms-test")
+        .env("GIT_AUTHOR_EMAIL", "tms-test@example.com")
+        .env("GIT_COMMITTER_NAME", "tms-test")
+        .env("GIT_COMMITTER_EMAIL", "tms-test@example.com")
+        .status()?
+        .success());
+    assert!(ProcessCommand::new("git")
+        .args(["worktree", "add", "-b", "linked"])
+        .arg(&worktree)
+        .current_dir(&repo)
+        .status()?
+        .success());
+
+    let config = Config {
+        search_dirs: Some(vec![SearchDirectory::new(directory.path().into(), 1)]),
+        ..Default::default()
+    };
+    let config_path = directory.path().join("config.toml");
+    fs::write(&config_path, toml::to_string(&config)?)?;
+
+    let bin = directory.path().join("bin");
+    fs::create_dir(&bin)?;
+    let fake_tmux = bin.join("tmux");
+    fs::write(
+        &fake_tmux,
+        "#!/bin/sh\nprintf '%s\n' \"$*\" >> \"$TMS_TMUX_LOG\"\n",
+    )?;
+    fs::set_permissions(&fake_tmux, fs::Permissions::from_mode(0o755))?;
+    let log = directory.path().join("tmux.log");
+
+    for (name, path) in [("repo", &repo), ("worktree", &worktree)] {
+        Command::cargo_bin("tms")?
+            .args(["open-session", name])
+            .env("TMS_CONFIG_FILE", &config_path)
+            .env("TMS_TMUX_LOG", &log)
+            .env("TERM_PROGRAM", "tmux")
+            .env(
+                "PATH",
+                format!("{}:{}", bin.display(), std::env::var("PATH")?),
+            )
+            .assert()
+            .success();
+
+        let commands = fs::read_to_string(&log)?;
+        assert!(
+            commands.contains(&format!(
+                "new-session -d -s {name} -c {}",
+                fs::canonicalize(path)?.display()
+            )),
+            "unexpected tmux commands: {commands}"
+        );
+    }
+
+    let commands = fs::read_to_string(&log)?;
+    assert_eq!(commands.matches("new-session ").count(), 2);
+    assert!(!commands.contains("new-window"));
+    assert!(!commands.contains("move-window"));
     Ok(())
 }

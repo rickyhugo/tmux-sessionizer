@@ -401,10 +401,6 @@ pub fn find_repos(config: &Config) -> Result<HashMap<String, Vec<Session>>> {
     let mut repos: HashMap<String, Vec<Session>> = HashMap::new();
 
     search_dirs(config, |file, repo| {
-        if repo.is_worktree().unwrap_or(true) {
-            return Ok(());
-        }
-
         let session_name = file
             .path
             .file_name()
