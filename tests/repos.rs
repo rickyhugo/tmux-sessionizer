@@ -134,6 +134,7 @@ fn find_repos_includes_linked_worktree_as_separate_session() {
     let search = fs::canonicalize(&search).unwrap();
     let main_repo = search.join("main-repo");
     let linked = search.join("linked");
+    let another_linked = search.join("another-linked");
     fs::create_dir_all(&main_repo).unwrap();
 
     Command::new("git")
@@ -148,6 +149,12 @@ fn find_repos_includes_linked_worktree_as_separate_session() {
         .current_dir(&main_repo)
         .status()
         .unwrap();
+    Command::new("git")
+        .args(["worktree", "add", "-b", "another-linked"])
+        .arg(&another_linked)
+        .current_dir(&main_repo)
+        .status()
+        .unwrap();
 
     let linked_repo = LazyRepoProvider::new(&linked, &[VcsProviders::Git]).unwrap();
     assert!(
@@ -155,23 +162,19 @@ fn find_repos_includes_linked_worktree_as_separate_session() {
         "linked checkout should be classified as a worktree"
     );
 
-    let repos = find_repos(&config_searching(search, 2)).unwrap();
+    for list_worktrees in [None, Some(true)] {
+        let mut config = config_searching(search.clone(), 2);
+        config.list_worktrees = list_worktrees;
+        let repos = find_repos(&config).unwrap();
 
-    assert!(
-        repos.contains_key("main-repo"),
-        "expected main repository in picker results, got: {:?}",
-        repos.keys().collect::<Vec<_>>()
-    );
-    assert!(
-        repos.contains_key("linked"),
-        "linked worktree should appear in picker results, got: {:?}",
-        repos.keys().collect::<Vec<_>>()
-    );
-    assert_eq!(repos.len(), 2);
-    let SessionType::Git(linked_session) = &repos["linked"][0].session_type else {
-        panic!("linked should be a Git session");
-    };
-    assert_eq!(linked_session.path, linked);
+        let mut names = repos.keys().map(String::as_str).collect::<Vec<_>>();
+        names.sort_unstable();
+        assert_eq!(names, ["another-linked", "linked", "main-repo"]);
+        let SessionType::Git(linked_session) = &repos["linked"][0].session_type else {
+            panic!("linked should be a Git session");
+        };
+        assert_eq!(linked_session.path, linked);
+    }
 }
 
 #[test]

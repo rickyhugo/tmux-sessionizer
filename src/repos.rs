@@ -409,7 +409,7 @@ pub fn find_repos(config: &Config) -> Result<HashMap<String, Vec<Session>>> {
             })?
             .to_string()?;
 
-        if let Some(true) = config.list_worktrees {
+        if config.list_worktrees == Some(true) && repo.resolve()?.is_bare() {
             let vcs_provider_config = config
                 .vcs_providers
                 .clone()
