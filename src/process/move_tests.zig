@@ -710,6 +710,12 @@ fn setXattr(path: [:0]const u8, name: [:0]const u8, bytes: []const u8) !void {
         native.setxattr(path, name, bytes.ptr, bytes.len, 0, native.XATTR_NOFOLLOW)
     else
         native.lsetxattr(path, name, bytes.ptr, bytes.len, 0);
+    if (result != 0 and c.errno(result) == .OPNOTSUPP) {
+        var env = try t.environ.createMap(a);
+        defer env.deinit();
+        if (std.mem.eql(u8, env.get("TMS_TEST_ALLOW_UNSUPPORTED_XATTR") orelse "", "1"))
+            return error.SkipZigTest;
+    }
     try t.expectEqual(@as(c_int, 0), result);
 }
 

@@ -19,7 +19,6 @@ pub fn format(a: A, text: []const u8, native: []const u8) ![]const u8 {
     return eofDiagnostic(a, text, "unclosed array, expected `]`");
 }
 
-// Diagnostic recovery only. Native parsing decides whether the source is valid.
 fn endsInArray(a: A, text: []const u8) !bool {
     var stack: std.ArrayList(Frame) = .empty;
     defer stack.deinit(a);

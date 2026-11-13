@@ -11,6 +11,7 @@ mkdir -p "$output"
 output=$(realpath "$output")
 source_sha=${TMS_SOURCE_SHA:-$(git rev-parse HEAD)}
 export TMS_TEST_CROSS_DEVICE_DIR=${TMS_TEST_CROSS_DEVICE_DIR:-/dev/shm}
+export TMS_TEST_ALLOW_UNSUPPORTED_XATTR=0
 
 command -v mise >/dev/null
 [[ $(zig version) == 0.17.1 ]]

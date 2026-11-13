@@ -159,6 +159,8 @@
               runHook postBuild
             '';
             doCheck = true;
+            # Nix's syscall filter rejects xattr fixture setup with ENOTSUP.
+            TMS_TEST_ALLOW_UNSUPPORTED_XATTR = "1";
             checkPhase = ''
               runHook preCheck
               zig build test --system -Dtarget=${zigTarget} ${sdkFlags} -j"$NIX_BUILD_CORES"

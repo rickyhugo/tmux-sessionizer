@@ -66,10 +66,12 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Typecheck public contracts and run all module tests");
     for (domains) |domain| {
         const tests = b.addTest(.{ .root_module = domain.module });
+        if (target.result.abi.isMusl()) tests.linkage = .static;
         test_step.dependOn(&b.addRunArtifact(tests).step);
     }
     for ([_]*std.Build.Module{ app, main, oracle, contracts }) |root| {
         const tests = b.addTest(.{ .root_module = root });
+        if (target.result.abi.isMusl()) tests.linkage = .static;
         test_step.dependOn(&b.addRunArtifact(tests).step);
     }
 }

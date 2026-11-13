@@ -4,6 +4,7 @@ hk = "2.12.0"
 jj = "0.38.0"
 tmux = "3.8"
 python = "3.14.7"
+gh = "2.103.3"
 rust = { version = "1.99.0", components = "rustfmt,clippy" }
 
 [env]
@@ -103,3 +104,37 @@ run = "hk check --all"
 [tasks.ci]
 description = "Validate hk and run the shared checks"
 run = ["hk validate --deny-warnings", "hk check --all"]
+
+[tasks.package]
+description = "Build and inspect a Zig release archive"
+run = "python3 scripts/package.py build"
+
+[tasks."package:verify"]
+description = "Inspect a Zig release archive"
+run = "python3 scripts/package.py verify"
+
+[tasks."package:version"]
+description = "Print the Zig package version"
+run = "python3 scripts/package.py version"
+
+[tasks."package:tag"]
+description = "Check a release tag against build.zig.zon"
+run = "python3 scripts/package.py validate-tag"
+
+[tasks.install]
+description = "Install the native Zig executable and notices"
+depends = ["build:release"]
+run = "sh scripts/install.sh"
+
+[tasks."nix:check"]
+description = "Check the native Nix package and exported package names"
+run = """
+system=$(nix eval --impure --raw --expr builtins.currentSystem)
+test "$system" = "${NIX_SYSTEM:-$system}"
+nix flake check -L --no-update-lock-file
+nix build -L --no-link --no-update-lock-file .#default .#tmux-sessionizer
+"""
+
+[tasks."release:draft"]
+description = "Create a draft release from checked archives"
+run = 'gh release create "$RELEASE_TAG" --verify-tag --draft --generate-notes artifacts/*'
