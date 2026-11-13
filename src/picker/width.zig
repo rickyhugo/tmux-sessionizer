@@ -158,6 +158,42 @@ pub fn prefix(text: []const u8, scalar_cursor: usize) usize {
     return width(text[0..@min(pos, text.len)]);
 }
 
+pub const Clip = struct { bytes: usize = 0, cells: usize = 0 };
+
+pub fn clip(text: []const u8, max: usize) Clip {
+    if (max == 0) return .{};
+    var result: Clip = .{};
+    var measured: Clip = .{};
+    while (measured.bytes < text.len) {
+        const end = measured.bytes + clusterLen(text[measured.bytes..]);
+        if (end == measured.bytes) break;
+        var pos = end;
+        var sum: isize = @intCast(measured.cells);
+        var previous: u16 = W.normal;
+        var next: u16 = W.normal;
+        while (pos > 0) {
+            const old_end = pos;
+            pos -= 1;
+            while (pos > 0 and text[pos] & 0xc0 == 0x80) pos -= 1;
+            const scalar = std.unicode.utf8Decode(text[pos..old_end]) catch unreachable;
+            if (scalar < 32 or (scalar >= 127 and scalar <= 159)) continue;
+            const value = step(scalar, next);
+            sum += value.add;
+            next = value.info;
+            if (pos < measured.bytes) {
+                const old = step(scalar, previous);
+                sum -= old.add;
+                previous = old.info;
+            }
+            // Earlier scalars contribute equally once the old and new contexts agree.
+            if (pos <= measured.bytes and previous == next) break;
+        }
+        measured = .{ .bytes = end, .cells = @intCast(@max(0, sum)) };
+        if (measured.cells <= max) result = measured;
+    }
+    return result;
+}
+
 pub fn width(text: []const u8) usize {
     var end = text.len;
     var sum: isize = 0;
@@ -297,4 +333,72 @@ test "clipping keeps complete extended grapheme clusters" {
         try std.testing.expectEqual(cluster.len, clusterLen(cluster));
     }
     try std.testing.expectEqual("e\u{301}".len, clusterLen("e\u{301}x"));
+}
+
+test "clipping uses contextual widths across grapheme boundaries" {
+    for ([_][]const u8{ "لا", "\u{a4f8}\u{a4fc}", "\u{5d0}\u{200d}\u{5dc}", "\u{2d31}\u{2d7f}\u{2d31}" }) |text| {
+        const with_suffix = try std.mem.concat(std.testing.allocator, u8, &.{ text, "xy" });
+        defer std.testing.allocator.free(with_suffix);
+        for (0..5) |max| {
+            const actual = clip(with_suffix, max);
+            var expected: Clip = .{};
+            var end: usize = 0;
+            while (end < with_suffix.len and max > 0) {
+                end += clusterLen(with_suffix[end..]);
+                const cells = width(with_suffix[0..end]);
+                if (cells <= max) expected = .{ .bytes = end, .cells = cells };
+            }
+            try std.testing.expectEqualDeep(expected, actual);
+        }
+    }
+}
+
+test "incremental clipping matches complete-prefix widths for mixed Unicode" {
+    const parts = [_][]const u8{
+        "a",
+        "e\u{301}",
+        "界",
+        "🙂",
+        "👩‍👩‍👧‍👦",
+        "👍🏽",
+        "❤️",
+        "❤",
+        "\u{fe0e}",
+        "\u{fe0f}",
+        "🇸🇪",
+        "1️⃣",
+        "\u{e007f}",
+        "\u{e0061}",
+        "\u{e0031}",
+        "لا",
+        "א‍ל",
+        "ᨕᨗ‍ᨐ",
+        "ⵏ⵿ⴾ",
+        "ⵏ‍ⴾ",
+        "ꓹꓼ",
+        "𐰲‍𐰃",
+        "हिन्दी",
+        "\u{200d}",
+        "\u{17d2}",
+    };
+    var random = std.Random.DefaultPrng.init(171);
+    const rng = random.random();
+    var text: std.ArrayList(u8) = .empty;
+    defer text.deinit(std.testing.allocator);
+    for (0..500) |_| {
+        text.clearRetainingCapacity();
+        for (0..rng.intRangeAtMost(usize, 1, 9)) |_| {
+            try text.appendSlice(std.testing.allocator, parts[rng.uintLessThan(usize, parts.len)]);
+        }
+        for (0..7) |max| {
+            var expected: Clip = .{};
+            var end: usize = 0;
+            while (end < text.items.len and max > 0) {
+                end += clusterLen(text.items[end..]);
+                const cells = width(text.items[0..end]);
+                if (cells <= max) expected = .{ .bytes = end, .cells = cells };
+            }
+            try std.testing.expectEqualDeep(expected, clip(text.items, max));
+        }
+    }
 }

@@ -160,9 +160,10 @@ fn text(a: A, out: *std.ArrayList(u8), source: []const u8, max: usize, sgr: bool
 }
 
 fn clippedText(a: A, out: *std.ArrayList(u8), source: []const u8, max: usize, sgr: bool) !usize {
+    const start_out = out.items.len;
+    var visible: std.ArrayList(u8) = .empty;
+    defer visible.deinit(a);
     var i: usize = 0;
-    var cells: usize = 0;
-    var clipped = max == 0;
     while (i < source.len) {
         if (source[i] == 0x1b) {
             const start = i;
@@ -213,13 +214,29 @@ fn clippedText(a: A, out: *std.ArrayList(u8), source: []const u8, max: usize, sg
         const length = widths.clusterLen(source[i..]);
         const bytes = source[i..][0..length];
         i += length;
-        const width = widths.width(bytes);
-        if (cells + width > max) clipped = true;
-        if (clipped) continue;
         try out.appendSlice(a, bytes);
-        cells += width;
+        try visible.appendSlice(a, bytes);
     }
-    return cells;
+    const clipped = widths.clip(visible.items, max);
+    var read_pos = start_out;
+    var write_pos = start_out;
+    var text_pos: usize = 0;
+    while (read_pos < out.items.len) {
+        const start = read_pos;
+        if (out.items[read_pos] == 0x1b) {
+            while (out.items[read_pos] != 'm') : (read_pos += 1) {}
+            read_pos += 1;
+        } else {
+            read_pos += 1;
+            text_pos += 1;
+            if (text_pos > clipped.bytes) continue;
+        }
+        const bytes = out.items[start..read_pos];
+        std.mem.copyForwards(u8, out.items[write_pos..][0..bytes.len], bytes);
+        write_pos += bytes.len;
+    }
+    out.items.len = write_pos;
+    return clipped.cells;
 }
 
 test "labels cannot emit controls, preview only passes bounded numeric SGR" {
@@ -245,4 +262,19 @@ test "wide and combining labels fit the row" {
     out.clearRetainingCapacity();
     try text(a, &out, "❤️x", 1, false);
     try std.testing.expectEqualStrings("", out.items);
+}
+
+test "clipping and cursor widths share whole-prefix accounting" {
+    const a = std.testing.allocator;
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(a);
+    for ([_][]const u8{ "لاx", "\u{a4f8}\u{a4fc}x", "\u{5d0}\u{200d}\u{5dc}x" }) |text_value| {
+        out.clearRetainingCapacity();
+        const cells = try clippedText(a, &out, text_value, 2, false);
+        try std.testing.expectEqualStrings(text_value, out.items);
+        try std.testing.expectEqual(widths.prefix(text_value, 100), cells);
+    }
+    out.clearRetainingCapacity();
+    try text(a, &out, "\x1b[31mلاx\x1b[0m", 1, true);
+    try std.testing.expectEqualStrings("\x1b[31mلا\x1b[0m", out.items);
 }

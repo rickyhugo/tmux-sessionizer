@@ -21,6 +21,7 @@ fn signalHandler(signal: c.SIG) callconv(.c) void {
 pub const Terminal = struct {
     fd: c_int,
     original: c.termios,
+    original_flags: c_int,
     handlers: [signals.len]c.Sigaction,
     raw: bool = false,
     handlers_set: usize = 0,
@@ -44,7 +45,9 @@ pub const Terminal = struct {
             }
         }
         if (c.fcntl(fd, c.F.SETFD, @as(c_int, c.FD_CLOEXEC)) < 0) return error.TerminalDescriptor;
-        var self: Terminal = .{ .fd = fd, .original = undefined, .handlers = undefined };
+        const flags = c.fcntl(fd, c.F.GETFL);
+        if (flags < 0) return error.TerminalDescriptor;
+        var self: Terminal = .{ .fd = fd, .original = undefined, .original_flags = flags, .handlers = undefined };
         if (c.tcgetattr(fd, &self.original) != 0) return error.TerminalAttributes;
         errdefer self.restoreHandlers();
         for (signals) |signal| {
@@ -60,6 +63,11 @@ pub const Terminal = struct {
     }
 
     fn enter(self: *Terminal) !void {
+        const nonblocking = self.original_flags | @as(c_int, 1 << @bitOffsetOf(c.O, "NONBLOCK"));
+        if (c.fcntl(self.fd, c.F.SETFL, nonblocking) < 0) return error.TerminalDescriptor;
+        errdefer if (!self.raw) {
+            _ = c.fcntl(self.fd, c.F.SETFL, self.original_flags);
+        };
         var raw = self.original;
         cfmakeraw(&raw);
         raw.cc[@backingInt(c.V.MIN)] = 1;
@@ -71,11 +79,14 @@ pub const Terminal = struct {
 
     fn leave(self: *Terminal) void {
         if (!self.raw) return;
-        self.write("\x1b[0m\x1b[?25h\x1b[?1049l") catch {};
         while (c.tcsetattr(self.fd, .NOW, &self.original) != 0) {
             if (c._errno().* != @backingInt(c.E.INTR)) break;
         }
         self.raw = false;
+        // A full output queue must not delay attribute restoration or signal delivery.
+        const cleanup = "\x1b[0m\x1b[?25h\x1b[?1049l";
+        _ = c.write(self.fd, cleanup.ptr, cleanup.len);
+        _ = c.fcntl(self.fd, c.F.SETFL, self.original_flags);
     }
 
     fn restoreHandlers(self: *Terminal) void {
@@ -92,7 +103,7 @@ pub const Terminal = struct {
         owned.store(false, .release);
     }
 
-    pub fn checkSignals(self: *Terminal) !bool {
+    fn checkTermination(self: *Terminal) !void {
         const signal = terminating.swap(0, .monotonic);
         if (signal != 0) {
             self.leave();
@@ -100,6 +111,10 @@ pub const Terminal = struct {
             _ = c.raise(@fromBackingInt(@intCast(signal)));
             return error.Terminated;
         }
+    }
+
+    pub fn checkSignals(self: *Terminal) !bool {
+        try self.checkTermination();
         if (suspended.swap(false, .monotonic)) {
             self.leave();
             _ = c.raise(.STOP);
@@ -115,12 +130,21 @@ pub const Terminal = struct {
         return .{ .width = value.col, .height = value.row };
     }
 
-    pub fn write(self: *const Terminal, bytes: []const u8) !void {
+    pub fn write(self: *Terminal, bytes: []const u8) !void {
         var rest = bytes;
         while (rest.len > 0) {
+            try self.checkTermination();
+            if (suspended.load(.monotonic)) return error.TerminalInterrupted;
             const n = c.write(self.fd, rest.ptr, rest.len);
             if (n < 0) {
                 if (std.c._errno().* == @backingInt(c.E.INTR)) continue;
+                if (std.c._errno().* == @backingInt(c.E.AGAIN)) {
+                    var fd: c.pollfd = .{ .fd = self.fd, .events = c.POLL.OUT, .revents = 0 };
+                    const ready = c.poll(@ptrCast(&fd), 1, 50);
+                    if (ready < 0 and c._errno().* != @backingInt(c.E.INTR)) return error.TerminalPoll;
+                    if (fd.revents & (c.POLL.HUP | c.POLL.ERR | c.POLL.NVAL) != 0) return error.TerminalClosed;
+                    continue;
+                }
                 return error.TerminalWrite;
             }
             if (n == 0) return error.TerminalWrite;

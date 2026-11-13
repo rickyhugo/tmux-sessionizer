@@ -159,7 +159,11 @@ pub fn choose(io: Io, result: A, scratch: A, items: []const Item, options: confi
                 _ = try reduce(scratch, &state, .{ .resize = tty.size() }, options);
             }
             const bytes = try render.draw(a, state, items, options, text);
-            try tty.write(bytes);
+            tty.write(bytes) catch |err| {
+                _ = try tty.checkSignals();
+                if (err == error.TerminalInterrupted) continue;
+                return err;
+            };
             dirty = false;
         }
         const waiting = decoder.pending();

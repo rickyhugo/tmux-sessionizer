@@ -31,6 +31,10 @@ pub const Decoder = struct {
                     self.consume(1);
                     return .{ .code = .esc };
                 }
+                if (self.bytes[1] == 0x1b) {
+                    self.consume(2);
+                    return .{ .code = .esc };
+                }
                 if (self.bytes[1] == '[' or self.bytes[1] == 'O') {
                     var end: usize = 2;
                     while (end < self.len and !(self.bytes[end] >= 0x40 and self.bytes[end] <= 0x7e)) : (end += 1) {
@@ -57,6 +61,19 @@ pub const Decoder = struct {
                 self.consume(offset + 1);
                 continue;
             };
+            for (1..@min(n, self.len - offset)) |i| {
+                const byte = self.bytes[offset + i];
+                if (byte & 0xc0 != 0x80 or (i == 1 and switch (first) {
+                    0xe0 => byte < 0xa0,
+                    0xed => byte >= 0xa0,
+                    0xf0 => byte < 0x90,
+                    0xf4 => byte >= 0x90,
+                    else => false,
+                })) {
+                    self.consume(offset + i);
+                    continue :decode;
+                }
+            }
             if (self.len - offset < n) {
                 return null;
             }
@@ -191,4 +208,24 @@ test "incomplete sequences retain fragmented UTF-8 but cannot swallow cancellati
     decoder.feed("\x03");
     const cancel = decoder.next(false).?;
     try std.testing.expect(cancel.code.char == 'c' and cancel.modifiers.ctrl);
+}
+
+test "every UTF-8 prefix rejects an invalid continuation without swallowing Ctrl-C" {
+    for ([_][]const u8{ "ä", "界", "🙂" }) |text| {
+        for (1..text.len) |length| {
+            var decoder: Decoder = .{};
+            decoder.feed(text[0..length]);
+            try std.testing.expect(decoder.next(false) == null);
+            decoder.feed("\x03");
+            const key = decoder.next(false) orelse return error.CancellationLost;
+            try std.testing.expect(key.code == .char and key.code.char == 'c' and key.modifiers.ctrl);
+        }
+    }
+}
+
+test "buffered double escape is plain Escape" {
+    var decoder: Decoder = .{};
+    decoder.feed("\x1b\x1b");
+    const key = decoder.next(false).?;
+    try std.testing.expect(key.code == .esc and !key.modifiers.alt);
 }

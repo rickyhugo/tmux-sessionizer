@@ -6,11 +6,13 @@ The picker preserves stable item IDs and original labels without fzf. Its only s
 
 `src/picker.zig` owns the pure reducer and picker loop. Configuration supplies resolved bindings through `config.pickerOptions`. The reducer does not add a second set of defaults. Rendering supplies the reference color defaults when a color remains absent.
 
-Private modules own input decoding, terminal lifetime, previews, rendering, and Unicode width. Query editing counts Unicode scalars. Cursor placement and clipping use display cells and complete extended grapheme clusters.
+Private modules own input decoding, terminal lifetime, previews, rendering, and Unicode width. Query editing counts Unicode scalars. Cursor placement and clipping measure complete text prefixes with the same upstream width rules. Clipping preserves complete extended grapheme clusters, including width rules that span several clusters.
 
 The result allocator is unused because the result is an item ID. The scratch allocator owns the query, candidate-label array, and current ranked indices. Every replacement ranking frees the previous result. A resettable frame arena owns preview output and rendering bytes. No keystroke allocation survives in the command arena.
 
-One terminal owner saves attributes and signal handlers. Every normal or error return restores attributes, cursor visibility, and the alternate screen. SIGTERM, SIGHUP, SIGINT, and SIGQUIT restore the terminal before re-raising the original signal. SIGTSTP restores it before suspension. Resume re-enters raw mode and redraws. SIGWINCH redraws without a keypress.
+One terminal owner saves attributes, descriptor flags, and signal handlers. Nonblocking output retains partial writes and checks pending signals between polls of at most 50 milliseconds. Cleanup restores attributes before one best-effort, nonblocking escape write. A saturated output queue can prevent screen restoration sequences, but cannot block attribute restoration.
+
+SIGTERM, SIGHUP, SIGINT, and SIGQUIT restore attributes before re-raising the original signal. SIGTSTP restores them before suspension. Resume re-enters raw mode and redraws. SIGWINCH redraws without a keypress.
 
 Darwin `poll` rejects the `/dev/tty` alias. The owner reopens the concrete terminal device returned by `ttyname_r`. Saved-attribute comparisons ignore only Darwin's kernel-set `PENDIN` retype flag.
 
@@ -32,14 +34,17 @@ mise exec -- python3 src/picker/generate-width-data.py /path/to/unicode-width-0.
 
 The host was macOS arm64. Zig 0.17.1 built the temporary native driver through mise. The driver used the real matcher and tmux adapters, explicit reference bindings, and candidate IDs unrelated to injection indices.
 
-- All 16 picker unit tests pass. They cover every editing action, Unicode scalar edits, modified bindings, wrapping, result clamping, fragmented UTF-8 and escape sequences, sanitization, directory previews, display widths, grapheme clipping, and tiny dimensions.
+- All 21 picker unit tests pass. They cover every editing action, Unicode scalar edits, modified bindings, wrapping, result clamping, fragmented UTF-8 and escape sequences, sanitization, directory previews, display widths, grapheme clipping, and tiny dimensions. New cases cover invalid continuation bytes at every UTF-8 prefix length, buffered double Escape, and contextual clipping across grapheme boundaries. A seeded test compares incremental clipping against full-prefix widths for 500 mixed Unicode strings.
 - All 24 controlling-PTY scenarios pass with the production-optimized driver. Each completed scenario compares saved terminal attributes and screen restoration.
 - PTY scenarios cover original-ID confirmation, top and bottom navigation, Ctrl-J versus Enter, cancellation, custom bindings, no-match recovery, fragmented Unicode editing, C-locale wide/combining/emoji cursors, resize through zero and one-cell sizes, repeated edits, four termination signals, suspend/resume, and real session/window capture previews.
 - Three PTY cases inject allocator failures after terminal entry. They verify restoration after label, ranking, and frame allocation errors.
 - A temporary differential oracle matches upstream width and first-grapheme results for 6,651 deterministic Unicode vectors.
+- All seven checked-in focused PTY scenarios pass. They cover fragmented invalid UTF-8 cancellation, buffered double Escape, saturated output during SIGTERM, complete partial writes, and Arabic, Lisu, and Hebrew query clipping with scalar edits. The baseline fails all defect cases. The partial-write control passes before and after the fixes.
 - Native driver cross-compilation succeeds for macOS x86_64, Linux x86_64 GNU, and Linux x86_64 musl. These are compile checks, not runtime verification.
 
 `mise exec -- zig build test` runs the committed module tests. Temporary driver sources, PTY transcripts, and differential tools remain under `$TMPDIR/opencode/picker-*` for parent integration. The latest PTY report is `picker-pty-evidence/results.json`.
+
+`mise exec -- python3 src/picker/regression-pty.py` builds the checked-in focused driver with the real matcher. Every module uses ReleaseFast. The runner uses controlling PTYs and checks saved attributes before draining output after exit. The saturated-output case never drains the master after the wide frame starts and requires signal exit within two seconds. `--binary /path/to/driver` tests an existing compatible driver.
 
 ## Compatibility and limits
 
