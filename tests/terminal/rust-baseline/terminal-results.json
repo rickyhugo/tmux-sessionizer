@@ -1,0 +1,80 @@
+{
+  "artifact": {
+    "path": "/Users/hugo.englund/personal/tms-zig-terminal-tests/target/release/tms",
+    "sha256": "d3e5deaaa76f4f4208bdaa9e52759dfaff5c14788742fffe08b8ef784b93a1d0",
+    "version": "tmux-sessionizer 0.6.1"
+  },
+  "results": [
+    {
+      "name": "cancel-top",
+      "status": "PASS"
+    },
+    {
+      "name": "cancel-bottom",
+      "status": "PASS"
+    },
+    {
+      "name": "confirm-direct-pty",
+      "status": "PASS"
+    },
+    {
+      "name": "cancel-ctrl-c",
+      "status": "PASS"
+    },
+    {
+      "name": "unicode-edit",
+      "status": "PASS"
+    },
+    {
+      "name": "wide-cursor",
+      "status": "BASELINE_DEFECT",
+      "detail": "wide scalar cursor column 3, expected 4"
+    },
+    {
+      "name": "resize",
+      "status": "PASS"
+    },
+    {
+      "name": "tiny-terminal",
+      "status": "BASELINE_DEFECT",
+      "detail": "process did not exit; out-of-bounds cursor positions [[1, 3], [1, 3]]"
+    },
+    {
+      "name": "sigterm-restoration",
+      "status": "BASELINE_DEFECT",
+      "detail": "termios not restored"
+    },
+    {
+      "name": "custom-cancel",
+      "status": "PASS"
+    },
+    {
+      "name": "error-restoration",
+      "status": "PASS"
+    },
+    {
+      "name": "cancel",
+      "status": "PASS"
+    },
+    {
+      "name": "confirm",
+      "status": "PASS"
+    },
+    {
+      "name": "custom-confirm-active-style",
+      "status": "PASS"
+    },
+    {
+      "name": "session-preview",
+      "status": "PASS"
+    },
+    {
+      "name": "window-preview",
+      "status": "PASS"
+    },
+    {
+      "name": "popup-client-restoration",
+      "status": "PASS"
+    }
+  ]
+}

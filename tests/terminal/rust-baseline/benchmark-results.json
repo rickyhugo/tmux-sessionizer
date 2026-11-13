@@ -1,0 +1,154 @@
+{
+  "verdict": "INCONCLUSIVE",
+  "decision": "Only a repeatable gap larger than within-side spread with an identified limiter could support an adoption claim. This script supplies timings, not limiter evidence.",
+  "limiter": "NOT IDENTIFIED. Collect a separate profile before claiming a speedup.",
+  "host": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+  "cores": 10,
+  "load": [
+    20.19580078125,
+    22.130859375,
+    15.0224609375
+  ],
+  "uptime": "11:37  up 3 days,  3:09, 4 users, load averages: 20.20 22.13 15.02",
+  "artifacts": {
+    "rust": {
+      "path": "/Users/hugo.englund/personal/tms-zig-terminal-tests/target/release/tms",
+      "sha256": "d3e5deaaa76f4f4208bdaa9e52759dfaff5c14788742fffe08b8ef784b93a1d0",
+      "version": "tmux-sessionizer 0.6.1"
+    }
+  },
+  "release_builds_attested": true,
+  "release_build_command_templates": {
+    "rust": "mise exec -- cargo build --release --locked",
+    "zig": "mise exec -- zig build -Doptimize=ReleaseFast"
+  },
+  "invocation": [
+    "/Users/hugo.englund/.local/share/mise/installs/python/3.14.7/bin/python",
+    "scripts/benchmark.py",
+    "--rust",
+    "target/release/tms",
+    "--release-builds",
+    "--samples",
+    "7",
+    "--candidates",
+    "1000",
+    "--output",
+    "/private/var/folders/zj/d5cklrtd0cb5nl3s7hrd558r0000gp/T/opencode/tms-rust-benchmark"
+  ],
+  "tmux": "tmux 3.8",
+  "timing_boundary": "Version uses subprocess launch through validated exit. Picker uses target launch inside the PTY supervisor through a complete candidate count. Search uses input write through a unique selected result, not the echoed prompt. Python supervisor startup and fixture creation are outside picker timings.",
+  "cache": "warm filesystem, new process and matcher for every sample, no warmup discarded",
+  "search": "Full unique query typed into the real picker after all candidates render. No extra redraw key is sent. Timeout is a failure, not a latency sample.",
+  "samples": [
+    {
+      "side": "rust",
+      "sample": 1,
+      "version_ms": 3.9901669952087104,
+      "picker_startup_ms": 23.421290970873088,
+      "search_ms": 3.090791986323893,
+      "picker_to_search_ms": 26.51720802532509,
+      "candidates": 1000,
+      "matched": 1,
+      "errors": 0
+    },
+    {
+      "side": "rust",
+      "sample": 2,
+      "version_ms": 4.257959022652358,
+      "picker_startup_ms": 58.92662500264123,
+      "search_ms": 3.3344170078635216,
+      "picker_to_search_ms": 62.26762500591576,
+      "candidates": 1000,
+      "matched": 1,
+      "errors": 0
+    },
+    {
+      "side": "rust",
+      "sample": 3,
+      "version_ms": 5.180499982088804,
+      "picker_startup_ms": 27.478958014398813,
+      "search_ms": 3.4461250179447234,
+      "picker_to_search_ms": 30.932750029023737,
+      "candidates": 1000,
+      "matched": 1,
+      "errors": 0
+    },
+    {
+      "side": "rust",
+      "sample": 4,
+      "version_ms": 4.700666002463549,
+      "picker_startup_ms": 18.799750017933547,
+      "search_ms": 3.289208048954606,
+      "picker_to_search_ms": 22.098250046838075,
+      "candidates": 1000,
+      "matched": 1,
+      "errors": 0
+    },
+    {
+      "side": "rust",
+      "sample": 5,
+      "version_ms": 4.5939579722471535,
+      "picker_startup_ms": 62.10662500234321,
+      "search_ms": 6.682290986645967,
+      "picker_to_search_ms": 68.7957500340417,
+      "candidates": 1000,
+      "matched": 1,
+      "errors": 0
+    },
+    {
+      "side": "rust",
+      "sample": 6,
+      "version_ms": 10.464791965205222,
+      "picker_startup_ms": 22.391957987565547,
+      "search_ms": 2.8461249894462526,
+      "picker_to_search_ms": 25.24337498471141,
+      "candidates": 1000,
+      "matched": 1,
+      "errors": 0
+    },
+    {
+      "side": "rust",
+      "sample": 7,
+      "version_ms": 4.739333991892636,
+      "picker_startup_ms": 18.724832974839956,
+      "search_ms": 3.144417016301304,
+      "picker_to_search_ms": 21.87516598496586,
+      "candidates": 1000,
+      "matched": 1,
+      "errors": 0
+    }
+  ],
+  "errors": [],
+  "summary": {
+    "rust": {
+      "version_ms": {
+        "median": 4.700666002463549,
+        "min": 3.9901669952087104,
+        "max": 10.464791965205222,
+        "unit": "ms",
+        "n": 7
+      },
+      "picker_startup_ms": {
+        "median": 23.421290970873088,
+        "min": 18.724832974839956,
+        "max": 62.10662500234321,
+        "unit": "ms",
+        "n": 7
+      },
+      "search_ms": {
+        "median": 3.289208048954606,
+        "min": 2.8461249894462526,
+        "max": 6.682290986645967,
+        "unit": "ms",
+        "n": 7
+      },
+      "picker_to_search_ms": {
+        "median": 26.51720802532509,
+        "min": 21.87516598496586,
+        "max": 68.7957500340417,
+        "unit": "ms",
+        "n": 7
+      }
+    }
+  }
+}
