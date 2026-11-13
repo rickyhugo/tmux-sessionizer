@@ -112,7 +112,7 @@ def main():
         description="Drive the native picker through real tmux PTYs on private sockets."
     )
     parser.add_argument(
-        "--bin", default=os.environ.get("TMS_BIN", str(REPO / "target/debug/tms"))
+        "--bin", default=os.environ.get("TMS_BIN", str(REPO / "zig-out/bin/tms"))
     )
     parser.add_argument("--artifacts", type=Path)
     args = parser.parse_args()

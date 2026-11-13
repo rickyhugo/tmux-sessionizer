@@ -5,10 +5,6 @@ jj = "0.38.0"
 tmux = "3.8"
 python = "3.14.7"
 gh = "2.103.3"
-rust = { version = "1.99.0", components = "rustfmt,clippy" }
-
-[env]
-RUSTUP_TOOLCHAIN = "1.99.0"
 
 [tasks.build]
 description = "Build the Zig executable"
@@ -26,23 +22,6 @@ run = "zig build test"
 description = "Verify tmux arguments, command policies, and a private tmux lifecycle"
 run = "python3 src/app/check.py --real-tmux"
 
-[tasks."test:matcher:diff"]
-description = "Compare Zig ranking with the Rust oracle"
-depends = ["build", "build:rust-oracle"]
-run = "python3 src/matcher/check-parity.py --oracle zig-out/bin/tms-oracle --rust-oracle target/debug/examples/compat_oracle"
-
-[tasks."build:rust"]
-description = "Build the Rust reference executable"
-run = "cargo build --locked"
-
-[tasks."test:rust"]
-description = "Run Rust reference tests"
-run = "cargo test --locked"
-
-[tasks."build:rust-oracle"]
-description = "Build the Rust ranking reference"
-run = "cargo build --locked --example compat_oracle"
-
 [tasks."test:harness"]
 description = "Check compatibility test isolation"
 run = [
@@ -50,20 +29,10 @@ run = [
   "python3 -m unittest discover -s tests/terminal -p 'test_*.py'",
 ]
 
-[tasks."test:compat:rust"]
-description = "Replay command and ranking fixtures against Rust"
-depends = ["test:harness", "build:rust", "build:rust-oracle"]
-run = "python3 scripts/compat.py --jj --oracle target/debug/examples/compat_oracle"
-
 [tasks."test:compat"]
 description = "Compare Zig commands and ranking with the Rust fixtures"
 depends = ["test:harness", "build:release"]
 run = "python3 scripts/compat.py --jj --bin zig-out/bin/tms --oracle zig-out/bin/tms-oracle"
-
-[tasks."test:terminal:rust"]
-description = "Exercise the Rust picker in isolated tmux terminals"
-depends = ["build:rust"]
-run = "python3 scripts/compat_terminal.py"
 
 [tasks."test:terminal"]
 description = "Exercise the Zig picker in isolated tmux terminals"
@@ -80,12 +49,12 @@ description = "Verify cancellation under blocked output and fragmented input"
 run = "python3 src/picker/regression-pty.py"
 
 [tasks.fmt]
-description = "Format Zig and Rust files through hk"
-run = "hk fix --all --step zig-fmt --step rust-fmt"
+description = "Format Zig files through hk"
+run = "hk fix --all --step zig-fmt"
 
 [tasks."fmt:check"]
-description = "Check Zig and Rust formatting through hk"
-run = "hk check --all --step zig-fmt --step rust-fmt"
+description = "Check Zig formatting through hk"
+run = "hk check --all --step zig-fmt"
 
 [tasks."hooks:setup"]
 description = "Install repository-local hk hooks through mise"

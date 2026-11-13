@@ -307,24 +307,12 @@ def compare(name, actual, expected):
     return False
 
 
-def rust_tests(binary):
-    with tempfile.TemporaryDirectory(prefix="tms-rust-tests-") as tmp:
-        workspace = Workspace(Path(tmp).resolve(), binary)
-        try:
-            env = {**workspace.env, "GIT_CONFIG_VALUE_0": "master"}
-            return subprocess.run(
-                ["cargo", "test", "--locked"], cwd=REPO, env=env
-            ).returncode
-        finally:
-            workspace.close()
-
-
 def main():
     parser = argparse.ArgumentParser(
         description="Capture or check isolated tms compatibility fixtures."
     )
     parser.add_argument(
-        "--bin", default=os.environ.get("TMS_BIN", str(REPO / "target/debug/tms"))
+        "--bin", default=os.environ.get("TMS_BIN", str(REPO / "zig-out/bin/tms"))
     )
     parser.add_argument(
         "--capture",
@@ -345,15 +333,8 @@ def main():
         default=os.environ.get("TMS_ORACLE_BIN"),
         help="Optional headless ranking executable.",
     )
-    parser.add_argument(
-        "--rust-tests",
-        action="store_true",
-        help="Run existing Cargo tests with the tmux safety shim.",
-    )
     args = parser.parse_args()
     binary = Path(args.bin).resolve(strict=True)
-    if args.rust_tests:
-        return rust_tests(binary)
     cases = json.loads((FIXTURES / "cases.json").read_text())
     if args.case:
         unknown = set(args.case) - {case["name"] for case in cases}

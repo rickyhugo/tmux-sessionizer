@@ -193,8 +193,7 @@ provider. The picker is part of `tms`. It does not require fzf or a runtime help
 ### Release archives
 
 Use the [fork's releases page](https://github.com/rickyhugo/tmux-sessionizer/releases)
-to select a published Zig release. This preparation does not establish that a Zig
-release exists. If no release has the archives below, build from source.
+to select a published Zig release. Until a Zig release is published, build from source.
 
 Archives cover Apple Silicon and Intel macOS, plus x86-64 Linux with GNU libc or
 musl. Each archive has a matching `.sha256` file. Download both files for the same
@@ -229,8 +228,7 @@ MISE_AUTO_INSTALL=false mise run install
 
 The default prefix is `$HOME/.local`. Add `$HOME/.local/bin` to `PATH`.
 Use `MISE_AUTO_INSTALL=false mise run install -- /another/prefix` to change the prefix.
-The source build uses Zig 0.17.1. These commands do not install the Rust
-compatibility reference or hk.
+The source build uses Zig 0.17.1. These commands install only Zig and Python.
 
 ### Nix
 
@@ -252,9 +250,8 @@ mise run ci
 
 Run `mise run hooks:setup` from a standalone clone to install the shared hk hooks.
 CI calls `mise run ci`, which validates hk and runs the same checks with
-`hk check --all`. The integration must include the command, ranking, and terminal
-compatibility checks before the Zig switch. A passing foundation build does not
-prove compatibility.
+`hk check --all`. Required checks include Zig tests, command and ranking
+compatibility, real terminals and tmux popups, and picker stress regressions.
 
 hk 2.12.0 has no Intel macOS release binary. The full developer tool install,
 hk formatting, hooks, and shared CI task are not supported on Intel Macs with this
@@ -264,7 +261,7 @@ hk. Shared CI still runs every check on Linux x86-64 and Apple Silicon.
 `nix develop` provides pinned mise 2026.10.17, not a separate development toolchain.
 Run the same mise commands inside that shell. The Nix package build uses its own
 hash-pinned Zig 0.17.1 compiler without network installs inside the build sandbox.
-See [packaging details](docs/packaging.md) for release tasks and outstanding gates.
+See [packaging details](docs/packaging.md) for release tasks and verification limits.
 
 ## Usage Notes
 

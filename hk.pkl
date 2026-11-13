@@ -16,12 +16,10 @@ steps {
     fix = "zig fmt {{files}}"
   }
   ["zig-test"] {
-    condition = "exec_ok('test -f build.zig')"
     check = "mise run test"
     depends = "zig-fmt"
   }
   ["zig-release"] {
-    condition = "exec_ok('test -f build.zig')"
     check = "mise run build:release"
     depends = "zig-test"
   }
@@ -40,14 +38,5 @@ steps {
   ["picker-regressions"] {
     check = "mise run test:picker:regressions"
     depends = "zig-test"
-  }
-  ["rust-fmt"] {
-    glob = List("*.rs", "Cargo.toml", "rust-toolchain.toml")
-    check = "cargo fmt --all -- --check"
-    fix = "cargo fmt --all"
-  }
-  ["rust-test"] {
-    check = "mise run test:rust"
-    depends = "rust-fmt"
   }
 }
