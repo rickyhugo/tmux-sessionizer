@@ -17,6 +17,8 @@ their stricter untagged decoding.
 the override or platform location. Missing files are optional. Extension inference,
 unregistered file extensions, a UTF-8 BOM, and lossy UTF-8 file decoding follow the
 reference's TOML-only config source.
+Optional sources also suppress stat, open, and read failures. Parser and decoder
+failures remain fatal.
 
 Path expansion supports braced and unbraced variables, literal `${NAME:-fallback}`
 defaults, escaped dollars, and a leading tilde. Empty variables remain empty even
@@ -34,6 +36,13 @@ descriptions, and enum values. Parsing, help, and static completion use that mod
 `complete` runs before ordinary parsing and supports Bash, Elvish, Fish,
 PowerShell, and Zsh. Dynamic session completion returns catalog visible keys,
 not session names. Mark completion includes only valid marks.
+Repeated vector options append values. Scalar options still reject repetition.
+An attached short-option value consumes at most one `=` separator.
+
+Completion disables `COMPLETE` in the inherited process environment before
+discovery. Otherwise child tools such as jj can return their own completion
+scripts instead of repository data. It sets `COMPLETE=0` rather than removing
+the entry because Zig's IO backend retains the original environment block length.
 
 ## Diagnostic integration
 
@@ -82,7 +91,7 @@ Compare with a separately built Rust reference:
 mise exec -- python3 src/cli/check.py \
   --bin .zig-cache/config-driver \
   --rust /absolute/path/to/target/debug/tms \
-  --dynamic
+  --dynamic --jj
 ```
 
 Executed results:
@@ -93,8 +102,14 @@ Executed results:
 - 42 long, short, and generated-help comparisons passed.
 - 23 settings, bookmark, and mark persistence comparisons passed.
 - 200 dynamic visible-key and valid-mark completion probes passed against the parent's integrated domain modules.
+- 40 mixed Git/jj completion probes passed across all five shells, with linked workspaces and both worktree-list settings.
+- 11 argument regressions passed, including repeated vectors, attached equals signs, scalar repetition, and help after a missing value.
+- Five leap-second exports and three invalid-time rejections matched Rust.
+- 19 EOF-array diagnostic comparisons and six conservative-fallback checks passed.
+- An unreadable optional TOML source matched Rust's default configuration.
 - The unchanged compatibility runner passed `help`, `argument-errors`, `config-defaults`, `config-edit`, `config-remove-without-exclusions`, `config-missing-path`, `invalid-config-type`, `invalid-config-enum`, `invalid-config-keymap`, `config-type-coercion`, and `unknown-config-key`.
 - Config test artifacts compiled for `x86_64-linux-gnu` and `aarch64-linux-musl`. These were compile-only checks, not Linux runtime tests.
+- The updated full executable also compiled for both Linux targets. No Linux runtime test ran.
 
 The module tests cover malformed TOML, merge precedence and replacement,
 absent versus empty values, platform locations, raw saves, defaults, edits,
@@ -103,14 +118,24 @@ and sequence-struct coercions, and nanosecond timestamp conversion.
 
 No fixture or golden changed. Neither executable reads a golden.
 
-## Remaining compatibility exception
+## Parser diagnostic conversion
 
-The unchanged `invalid-toml` fixture fails only on diagnostic text. Both binaries
-reject the file, exit 1, and leave state unchanged. The Rust parser prints a
-source excerpt, column, and an unclosed-array message. The pinned native
-parser prints `(line 2) missing value`. The port reports the native parser's
-diagnostic rather than recognizing the fixture or synthesizing a Rust parser error.
-This exception needs the parent's explicit disposition.
+The native parser still decides acceptance and receives the original source.
+It exposes an error category and line, but no failure column. After rejection,
+`src/config/diagnostic.zig` recognizes EOF inside arrays with a diagnostic-only
+delimiter scanner. It tracks comments, quoted strings, nested arrays, and table
+headers. Native EOF categories become the reference's unclosed-array diagnostic,
+with a source excerpt and Unicode-aware column. EOF after a newline uses the
+reference parser's preceding-line convention. No config key or fixture text is
+recognized.
+
+Earlier syntax errors and ambiguous recovery, including inline tables, retain
+the native diagnostic. This is not full Rust-parser diagnostic equivalence.
+Full equivalence would require its lexer, recovery rules, and error ordering,
+not only a native-message translation table.
+
+`vendor/tomlc17/README.md` records the one-condition leap-second compatibility
+patch and both upstream and patched source hashes.
 
 This workstream does not claim the full application, ranking, or terminal suite.
 Those remain integration checks owned by the parent.

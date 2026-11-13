@@ -144,9 +144,10 @@ const Parser = struct {
         }
     }
     fn store(p: *Parser, o: spec.Option, values: []const []const u8) !void {
-        if (p.values.get(o.id) != null) return p.usageError(try std.fmt.allocPrint(p.a, "the argument '{s}' cannot be used multiple times", .{try spec.label(p.a, o)}));
+        const previous = p.values.get(o.id);
+        if (previous != null and !o.many()) return p.usageError(try std.fmt.allocPrint(p.a, "the argument '{s}' cannot be used multiple times", .{try spec.label(p.a, o)}));
         for (values) |value| try p.validate(o, value);
-        p.values.set(o.id, values);
+        p.values.set(o.id, if (previous) |v| try std.mem.concat(p.a, []const u8, &.{ v, values }) else values);
         if (p.first_option == null) p.first_option = o;
     }
     fn one(p: *Parser, id: spec.OptionId) ?[]const u8 {
@@ -187,7 +188,7 @@ const Parser = struct {
                         continue;
                     }
                     var vals: std.ArrayList([]const u8) = .empty;
-                    const attached = if (long) if (eq) |n| arg[n + 1 ..] else null else if (cursor + 1 < arg.len) std.mem.trimStart(u8, arg[cursor + 1 ..], "=") else null;
+                    const attached = if (long) if (eq) |n| arg[n + 1 ..] else null else if (cursor + 1 < arg.len) arg[cursor + 1 + @intFromBool(arg[cursor + 1] == '=') ..] else null;
                     if (attached) |v| try vals.append(p.a, v);
                     if (attached == null or selected.many()) {
                         while (i + 1 < p.args.len) {

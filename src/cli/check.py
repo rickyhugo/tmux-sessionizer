@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import tomllib
@@ -19,7 +20,189 @@ def run(binary, args, env):
     )
 
 
-def compare(binary, rust, dynamic):
+def regressions(binary, rust, config, env):
+    env = env | {"NO_COLOR": "1"}
+    forms = [
+        ["config", "--excluded", "first", "--excluded", "second"],
+        [
+            "config",
+            "--paths",
+            env["HOME"],
+            "--paths",
+            env["HOME"],
+            "--max-depths",
+            "1",
+            "--max-depths",
+            "2",
+        ],
+        ["config", "--remove", "first", "--remove", "second"],
+        ["config", "-s==work"],
+        ["config", "-s==="],
+        ["config", "-s="],
+        ["config", "--paths", "--help"],
+        ["config", "--paths", "-h"],
+        ["config", "--paths", "--full-path", "true", "--help"],
+        ["config", "--max-depths", "bad", "--help"],
+        ["config", "--full-path", "true", "--full-path", "false"],
+    ]
+    for args in forms:
+        results = []
+        for executable in (rust, binary):
+            config.write_text("excluded_dirs = ['first', 'second']\n")
+            result = run(executable, args, env)
+            results.append(
+                (
+                    result.returncode,
+                    result.stdout,
+                    result.stderr,
+                    tomllib.loads(config.read_text()),
+                )
+            )
+        assert results[0] == results[1], (args, results)
+    timestamps = [
+        "2016-12-31T23:59:60Z",
+        "2016-12-31 23:59:60.123456789+02:30",
+        "2016-12-31t23:59:60z",
+        "23:59:60",
+        "00:00:60.000000001",
+    ]
+    for timestamp in timestamps:
+        config.write_text(f"default_session = {timestamp}\n")
+        results = [
+            run(executable, ["config", "list"], env) for executable in (rust, binary)
+        ]
+        assert all(r.returncode == 0 for r in results), (timestamp, results)
+        assert tomllib.loads(results[0].stdout) == tomllib.loads(results[1].stdout)
+        assert config.read_text() == f"default_session = {timestamp}\n"
+    for timestamp in ("23:59:61", "24:00:60", "23:60:60"):
+        config.write_text(f"default_session = {timestamp}\n")
+        assert all(
+            run(executable, ["config", "list"], env).returncode == 1
+            for executable in (rust, binary)
+        ), timestamp
+    malformed = [
+        "directories = [",
+        "directories = [\n",
+        "directories = [\n\n",
+        "directories = [1",
+        "directories = [1 \n",
+        "directories = [1,\n",
+        "directories = [ # ] ignored\n",
+        "directories = [\n [1,\n",
+        'directories = ["[", # ]\n',
+        'directories = [\n "é",\n',
+        "directories = [\r\n",
+        'directories = ["escaped \\" ]",\n',
+        "directories = [1979-05-27 07:32:00,\n",
+        "[nested]\ndirectories = [\n",
+        "[[nested]]\ndirectories = [\n",
+        "directories = ['unfinished",
+        'directories = [\n """unfinished\n',
+        "directories = [\n '''unfinished\n",
+        "\n" * 10 + "directories = [\n",
+    ]
+
+    def diagnostic(text):
+        text = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", text)
+        text = re.sub(r"(?m)^.*╴at [^\n]*\.rs:\d+:\d+\n?", "", text)
+        return re.sub(r"(?m)^│\s*\n", "", text)
+
+    for text in malformed:
+        config.write_text(text)
+        results = [
+            run(executable, ["config", "list"], env) for executable in (rust, binary)
+        ]
+        assert all(r.returncode == 1 for r in results), (text, results)
+        assert diagnostic(results[0].stderr) == diagnostic(results[1].stderr), (
+            text,
+            results[0].stderr,
+            results[1].stderr,
+        )
+        assert config.read_bytes() == text.encode()
+    fallbacks = (
+        "directories = [1 2",
+        "directories = [1,,",
+        "directories = [\n 1\n 2",
+        'directories = ["bad\\q",\n',
+        "directories = [{path = ,},\n",
+        "[unclosed\n",
+    )
+    for text in fallbacks:
+        config.write_text(text)
+        result = run(binary, ["config", "list"], env)
+        assert result.returncode == 1 and "unclosed array" not in result.stderr, (
+            text,
+            result.stderr,
+        )
+    config.write_text("default_session = 'unreadable'\n")
+    config.chmod(0)
+    try:
+        results = [
+            run(executable, ["config", "list"], env) for executable in (rust, binary)
+        ]
+        assert all(r.returncode == 0 for r in results), results
+        assert tomllib.loads(results[0].stdout) == tomllib.loads(results[1].stdout)
+        assert "default_session" not in tomllib.loads(results[0].stdout)
+    finally:
+        config.chmod(0o600)
+    config.unlink()
+    print(
+        f"PASS {len(forms)} argument regressions, {len(timestamps) + 3} timestamp "
+        f"regressions, {len(malformed)} source diagnostics, {len(fallbacks)} native "
+        "diagnostic fallbacks, unreadable optional source"
+    )
+
+
+def jj_regressions(binary, rust, config, env):
+    search = Path(env["HOME"]) / "jj-search"
+    search.mkdir()
+    commands = [
+        ["git", "init", "--quiet", str(search / "ordinary")],
+        ["jj", "git", "init", "--no-colocate", str(search / "primary")],
+        [
+            "jj",
+            "-R",
+            str(search / "primary"),
+            "workspace",
+            "add",
+            str(search / "linked"),
+        ],
+    ]
+    env = env | {
+        "JJ_CONFIG": "",
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_NOSYSTEM": "1",
+    }
+    for command in commands:
+        subprocess.run(command, env=env, capture_output=True, check=True)
+    count = 0
+    for worktrees in ("false", "true"):
+        config.write_text(
+            f"vcs_providers = ['jj', 'git']\nlist_worktrees = {worktrees}\n"
+            f"search_paths = [{json.dumps(str(search))}]\n"
+        )
+        for shell in ("bash", "elvish", "fish", "powershell", "zsh"):
+            for token in ("", "p", "o", "--h"):
+                words = ["tms", "open-session", token]
+                complete_env = env | {
+                    "COMPLETE": shell,
+                    "_CLAP_COMPLETE_INDEX": "2",
+                }
+                results = [
+                    run(executable, ["--", *words], complete_env)
+                    for executable in (rust, binary)
+                ]
+                assert all(r.returncode == 0 for r in results), results
+                assert (results[0].stdout, results[0].stderr) == (
+                    results[1].stdout,
+                    results[1].stderr,
+                ), (worktrees, shell, token, results)
+                count += 1
+    config.unlink()
+    print(f"PASS {count} jj child-environment and discovery-failure completions")
+
+
+def compare(binary, rust, dynamic, jj=False):
     commands = [
         [],
         ["config"],
@@ -68,6 +251,9 @@ def compare(binary, rust, dynamic):
             "TMS_CONFIG_FILE": str(config),
         }
         env.pop("COMPLETE", None)
+        regressions(binary, rust, config, env)
+        if jj:
+            jj_regressions(binary, rust, config, env)
         help_forms = [
             [*command, flag] for command in commands for flag in ("--help", "-h")
         ] + [
@@ -258,9 +444,14 @@ if __name__ == "__main__":
     parser.add_argument("--bin", type=Path, required=True)
     parser.add_argument("--rust", type=Path, required=True)
     parser.add_argument(
+        "--jj",
+        action="store_true",
+        help="Require jj and compare mixed-provider completion with linked workspaces",
+    )
+    parser.add_argument(
         "--dynamic",
         action="store_true",
         help="Require integrated repository and session modules",
     )
     args = parser.parse_args()
-    compare(args.bin.resolve(), args.rust.resolve(), args.dynamic)
+    compare(args.bin.resolve(), args.rust.resolve(), args.dynamic, args.jj)

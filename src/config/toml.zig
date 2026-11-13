@@ -21,7 +21,7 @@ pub fn parseDetailed(a: A, text: []const u8, message: ?*?[]const u8) !Value {
     const result = c.toml_parse(text.ptr, std.math.cast(c_int, text.len) orelse return error.InvalidToml);
     defer c.toml_free(result);
     if (!result.ok) {
-        if (message) |m| m.* = try a.dupe(u8, std.mem.sliceTo(&result.errmsg, 0));
+        if (message) |m| m.* = try @import("diagnostic.zig").format(a, text, std.mem.sliceTo(&result.errmsg, 0));
         return error.InvalidToml;
     }
     return copy(a, text, result.toptab);

@@ -587,20 +587,17 @@ fn platformDir(a: A, env: *const Env) !?[]const u8 {
 }
 
 fn loadFile(io: Io, a: A, tree: *toml.Value, path: []const u8, diagnostic: ?*?[]const u8) !bool {
-    const stat = Io.Dir.cwd().statFile(io, path, .{}) catch |err| switch (err) {
-        error.FileNotFound, error.NotDir => return false,
-        else => return err,
-    };
+    const stat = Io.Dir.cwd().statFile(io, path, .{}) catch return false;
     if (stat.kind != .file) return false;
     // Optional config sources ignore existing files with unregistered extensions.
     if (!std.mem.eql(u8, std.fs.path.extension(path), ".toml")) return true;
-    const file = Io.Dir.cwd().openFile(io, path, .{}) catch |err| switch (err) {
-        error.FileNotFound => return false,
-        else => return err,
-    };
+    const file = Io.Dir.cwd().openFile(io, path, .{}) catch return false;
     defer file.close(io);
     var reader = file.reader(io, &.{});
-    const bytes = try reader.interface.allocRemaining(a, .unlimited);
+    const bytes = reader.interface.allocRemaining(a, .unlimited) catch |err| switch (err) {
+        error.OutOfMemory => return err,
+        else => return false,
+    };
     const text = try utf8Lossy(a, if (std.mem.startsWith(u8, bytes, "\xef\xbb\xbf")) bytes[3..] else bytes);
     var message: ?[]const u8 = null;
     const parsed = toml.parseDetailed(a, text, &message) catch |err| {
@@ -765,7 +762,7 @@ test "enum tables, sequence structs, precise timestamps, and UTF-8 file conversi
     try std.testing.expectEqualStrings("a\xef\xbf\xbd\xef\xbf\xbd\xef\xbf\xbdb", try utf8Lossy(a, "a\xed\xa0\x80b"));
 }
 
-test "location precedence, raw saves, canonical roots, bookmarks, and valid mark allocation" {
+test "clearing saved marks reveals exact marks inherited from the earlier location" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -786,6 +783,32 @@ test "location precedence, raw saves, canonical roots, bookmarks, and valid mark
     try std.testing.expectEqual(true, loaded.display_full_path.?);
     try std.testing.expectEqual(Color.red, loaded.picker_colors.?.info_color.?);
     try std.testing.expectEqual(Color.green, loaded.picker_colors.?.prompt_color.?);
+    try std.testing.expectEqual(@as(usize, 1), loaded.marks.?.count());
+    try std.testing.expectEqualStrings("/a/path/that/does/not/exist", loaded.marks.?.get("0").?);
+    try commit(io, a, &env, &loaded, .{ .set_mark = .{ .index = 0, .path = root } });
+    const overridden = try load(io, a, &env);
+    try std.testing.expectEqual(@as(usize, 1), overridden.marks.?.count());
+    try std.testing.expectEqualStrings(root, overridden.marks.?.get("0").?);
+    try commit(io, a, &env, &loaded, .clear_marks);
+    const inherited = try load(io, a, &env);
+    try std.testing.expectEqual(@as(usize, 1), inherited.marks.?.count());
+    try std.testing.expectEqualStrings("/a/path/that/does/not/exist", inherited.marks.?.get("0").?);
+}
+
+test "raw saves, canonical roots, bookmarks, and valid mark allocation" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const root = try tmp.dir.realPathFileAlloc(io, ".", a);
+    var env: Env = .init(a);
+    try env.put("HOME", root);
+    const path = try std.fs.path.join(a, &.{ root, "config.toml" });
+    try env.put("TMS_CONFIG_FILE", path);
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = "display_full_path = true\nsearch_paths = ['~']\nsearch_dirs = []\ninput_position = 'Top'\nunknown = 4\n[marks]\n'0' = '/a/path/that/does/not/exist'\n" });
+    var loaded = try load(io, a, &env);
     try std.testing.expectEqualStrings(root, (try searchRoots(io, a, &env, &loaded))[0].path);
     try commit(io, a, &env, &loaded, .{ .settings = .{ .paths = &.{root}, .max_depths = &.{ 0, 9 }, .default_session = "a.b-c", .excluded = &.{ "vendor*", "vendor*" } } });
     try commit(io, a, &env, &loaded, .{ .settings = .{ .max_depths = &.{7} } });
@@ -805,10 +828,10 @@ test "location precedence, raw saves, canonical roots, bookmarks, and valid mark
     try commit(io, a, &env, &loaded, .{ .delete_mark = 0 });
     try commit(io, a, &env, &loaded, .clear_marks);
     const reloaded = try load(io, a, &env);
-    try std.testing.expect(reloaded.marks != null); // The earlier source still contributes its raw mark.
+    try std.testing.expect(reloaded.marks == null);
     try std.testing.expectEqualStrings("$ABSENT/invalid", reloaded.bookmarks.?[0]);
-    const saved = try load(io, a, &env);
-    try std.testing.expect(saved.input_position == null);
+    try std.testing.expectEqual(InputPosition.top, reloaded.input_position.?);
+    try std.testing.expect(std.mem.indexOf(u8, try exportToml(a, &reloaded, false), "input_position") == null);
     try env.put("TMS_CONFIG_FILE", try std.fs.path.join(a, &.{ root, "isolated.toml" }));
     var isolated = try load(io, a, &env);
     try std.testing.expect(isolated.display_full_path == null);

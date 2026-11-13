@@ -2354,8 +2354,8 @@ static bool is_valid_time(int hour, int minute, int sec, int usec) {
   if (!(0 <= minute && minute <= 59)) {
     return false;
   }
-  // RFC 3339 permits sec == 60 for leap seconds; reject it deliberately.
-  if (!(0 <= sec && sec <= 59)) {
+  // Match RFC 3339 and toml_datetime's leap-second range.
+  if (!(0 <= sec && sec <= 60)) {
     return false;
   }
   if (!(0 <= usec)) {

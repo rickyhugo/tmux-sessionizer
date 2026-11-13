@@ -6,10 +6,13 @@ const A = std.mem.Allocator;
 const Env = std.process.Environ.Map;
 pub const Candidate = struct { value: []const u8, help: ?[]const u8 = null };
 const Shell = enum { bash, elvish, fish, powershell, zsh };
+extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
 
 pub fn complete(io: std.Io, a: A, argv: []const []const u8, env: *const Env) !bool {
     const setting = env.get("COMPLETE") orelse return false;
     if (setting.len == 0 or std.mem.eql(u8, setting, "0")) return false;
+    // Disable child completion without changing Zig's fixed-length environment block.
+    if (setenv("COMPLETE", "0", 1) != 0) return error.OutOfMemory;
     const name = std.fs.path.stem(std.fs.path.basename(setting));
     const shell = if (std.mem.eql(u8, name, "powershell_ise")) Shell.powershell else std.meta.stringToEnum(Shell, name) orelse return error.UnknownCompletionShell;
     var args: []const []const u8 = &.{};
