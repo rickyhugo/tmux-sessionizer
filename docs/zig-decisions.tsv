@@ -1,0 +1,4 @@
+ts	phase	decision	why	evidence	result
+2026-11-13T00:00:00Z	frame	Use a91ea21780acb58eced5b7f52da7f212f6ca33f0 as the Rust reference	The worktree was clean when the migration began	a91ea21780acb58eced5b7f52da7f212f6ca33f0	open
+2026-11-13T10:04:39Z	frame	The initial row used a placeholder timestamp; this row records the actual checkpoint	Preserve an accurate append-only audit trail	docs/zig-decisions.tsv	Initial timestamp superseded
+2026-11-13T10:05:30Z	frame	Keep Rust until differential and terminal compatibility pass	A successful Zig build alone cannot prove unchanged behavior	docs/zig-migration.md	Verification gates recorded
