@@ -76,11 +76,12 @@ The environment has Zig 0.17.1, hk 2.12.0, and jj 0.38.0 installed through mise.
 - `mise run test:terminal:rust` passed seven real tmux terminal scenarios on the integration branch.
 - The integrated Zig foundation passes `mise run test`. Its domain stubs still return `NotImplemented`.
 - Six isolation tests prove the tmux shim rejects unsupported global options before launching a process. Four targeted Rust cases still pass with the corrected shim.
-- The process adapter passes 13 runtime tests. The actual cross-device test is skipped because no writable second filesystem is available. Metadata-preservation fixes remain under review.
+- The process adapter passes 15 runtime tests, including metadata-preservation and failed-copy privacy checks. The actual cross-device test is skipped because no writable second filesystem is available.
 - Command and tmux checks pass 18 tests, including a real private-socket lifecycle.
 - Repository checks pass 22 tests, including 11 real Git and jj fixtures.
 - The integrated Zig oracle matches all 25 stored ranking vectors and 3,989 independent Rust differential vectors.
-- The broader Rust terminal suite reproduces 14 passes and three known defects. Review found isolation and assertion gaps in that suite. Fixes are in progress.
+- The broader Rust terminal suite reproduces 14 passes and three known defects after isolation and assertion fixes.
+- All 20 harness tests pass. The continuous-output cleanup regression passes 20 consecutive runs after waiting for child reaping while draining PTY output.
 
 These prove the reference and its harness. They do not establish Zig compatibility.
 

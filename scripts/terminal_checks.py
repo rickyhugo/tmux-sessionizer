@@ -322,8 +322,12 @@ sys.exit(code if code >= 0 else 128 - code)
                 os.kill(self.target_pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
-            os.killpg(self.process.pid, signal.SIGKILL)
-            self.process.kill()
+            deadline = time.monotonic() + 2
+            while self.process.poll() is None and time.monotonic() < deadline:
+                self.read(0.05)
+            if self.process.poll() is None:
+                os.killpg(self.process.pid, signal.SIGKILL)
+                self.process.kill()
         self.status_file.close()
         os.close(self.master)
         os.close(self.slave)
