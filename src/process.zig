@@ -66,35 +66,81 @@ pub fn inherit(io: Io, request: Request) anyerror!std.process.Child.Term {
 
 pub fn replace(io: Io, request: Request) anyerror!noreturn {
     if (request.argv.len == 0) return error.EmptyArgv;
-    var saved_input: ?Io.File = null;
-    defer if (saved_input) |file| {
-        Io.Threaded.dup2(file.handle, Io.File.stdin().handle) catch {};
-        file.close(io);
-    };
-    if (request.stdin == .ignore) {
-        const null_input = try Io.Dir.openFileAbsolute(io, "/dev/null", .{});
-        defer null_input.close(io);
-        const saved = std.c.fcntl(Io.File.stdin().handle, std.posix.F.DUPFD_CLOEXEC, @as(c_int, 3));
-        if (saved < 0) return error.DuplicateStdinFailed;
-        saved_input = .{ .handle = saved, .flags = .{ .nonblocking = false } };
-        // Replace has no stream options. Restore stdin if exec fails.
-        try Io.Threaded.dup2(null_input.handle, Io.File.stdin().handle);
-    }
+    var input: ReplacementInput = if (request.stdin == .ignore) try .save() else .{};
+    defer if (input.saved) |file| file.close(io);
     var saved_cwd: ?Io.Dir = null;
-    defer if (saved_cwd) |dir| {
-        std.process.setCurrentDir(io, dir) catch {};
-        dir.close(io);
+    defer if (saved_cwd) |dir| dir.close(io);
+    const failure = exec: {
+        if (request.stdin == .ignore) input.ignore(io) catch |err| break :exec err;
+        if (request.cwd) |path| {
+            saved_cwd = Io.Dir.cwd().openDir(io, ".", .{}) catch |err| break :exec err;
+            // The 0.17 POSIX replace backend does not apply ReplaceOptions.cwd.
+            std.process.setCurrentPath(io, path) catch |err| break :exec err;
+        }
+        break :exec std.process.replace(io, .{
+            .argv = request.argv,
+            .environ_map = request.env,
+        });
     };
-    if (request.cwd) |path| {
-        saved_cwd = try Io.Dir.cwd().openDir(io, ".", .{});
-        // The 0.17 POSIX replace backend does not apply ReplaceOptions.cwd.
-        try std.process.setCurrentPath(io, path);
-    }
-    return std.process.replace(io, .{
-        .argv = request.argv,
-        .environ_map = request.env,
-    });
+    const protection = io.swapCancelProtection(.blocked);
+    defer _ = io.swapCancelProtection(protection);
+    // Attempt both rollbacks even if one fails; never hide a restoration error.
+    const cwd_result = if (saved_cwd) |dir| std.process.setCurrentDir(io, dir) else {};
+    const input_result = input.restore();
+    try cwd_result;
+    try input_result;
+    return failure;
 }
+
+const ReplacementInput = struct {
+    saved: ?Io.File = null,
+    flags: c_int = 0,
+    changed: bool = false,
+
+    fn save() !ReplacementInput {
+        const flags = std.c.fcntl(0, std.posix.F.GETFD);
+        if (flags < 0) {
+            if (std.c.errno(flags) == .BADF) return .{};
+            return error.ReadStdinFlagsFailed;
+        }
+        const fd = std.c.fcntl(0, std.posix.F.DUPFD_CLOEXEC, @as(c_int, 3));
+        if (fd < 0) return error.DuplicateStdinFailed;
+        return .{
+            .saved = .{ .handle = fd, .flags = .{ .nonblocking = false } },
+            .flags = flags,
+        };
+    }
+
+    fn ignore(self: *ReplacementInput, io: Io) !void {
+        const file = try Io.Dir.openFileAbsolute(io, "/dev/null", .{});
+        if (file.handle == 0) {
+            // With originally closed stdin, open already installed /dev/null.
+            // Transfer ownership to rollback and clear open's close-on-exec bit.
+            self.changed = true;
+            try setFlags(0);
+        } else {
+            defer file.close(io);
+            try Io.Threaded.dup2(file.handle, 0);
+            self.changed = true;
+        }
+    }
+
+    fn restore(self: ReplacementInput) !void {
+        if (!self.changed) return;
+        if (self.saved) |file| {
+            try Io.Threaded.dup2(file.handle, 0);
+            try setFlags(self.flags);
+        } else {
+            if (std.c.close(0) != 0) return error.CloseStdinFailed;
+        }
+    }
+
+    fn setFlags(flags: c_int) !void {
+        while (std.c.fcntl(0, std.posix.F.SETFD, flags) < 0) {
+            if (std.c.errno(@as(c_int, -1)) != .INTR) return error.SetStdinFlagsFailed;
+        }
+    }
+};
 
 pub fn movePath(io: Io, a: A, from: []const u8, to: []const u8) anyerror!void {
     const dir = Io.Dir.cwd();

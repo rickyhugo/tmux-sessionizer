@@ -5,10 +5,20 @@ const io = t.io;
 const a = t.allocator;
 
 test "child helper" {
+    childHelper() catch |err| {
+        std.debug.print("child helper failed: {t}\n", .{err});
+        std.process.exit(1);
+    };
+}
+
+fn childHelper() !void {
     var env = try t.environ.createMap(a);
     defer env.deinit();
     const mode = env.get("TMS_PROCESS_HELPER") orelse return;
     const path = env.get("TMS_PROCESS_CWD").?;
+    if (std.mem.eql(u8, mode, "allocation-failure")) try checkOutputAllocationFailures(path);
+    if (std.mem.eql(u8, mode, "cancel")) try checkCaptureCancellation(path);
+    if (std.mem.startsWith(u8, mode, "quota-")) try checkReplacementSetupFailure(mode);
     const ignored = std.mem.endsWith(u8, mode, "ignore");
     const request: process.Request = .{
         .argv = &.{
@@ -22,24 +32,47 @@ test "child helper" {
         .env = &env,
         .stdin = if (ignored) .ignore else .inherit,
     };
-    if (std.mem.eql(u8, mode, "failed")) {
+    if (std.mem.startsWith(u8, mode, "failed")) {
         const before = try std.Io.Dir.cwd().realPathFileAlloc(io, ".", a);
         defer a.free(before);
+        const closed = std.mem.eql(u8, mode, "failed-closed");
+        const flags = std.c.fcntl(0, std.posix.F.GETFD);
+        try t.expect(flags >= 0);
+        const saved = std.c.fcntl(0, std.posix.F.DUPFD_CLOEXEC, @as(c_int, 3));
+        try t.expect(saved >= 0);
+        defer _ = std.c.close(saved);
+        if (closed) {
+            try t.expectEqual(@as(c_int, 0), std.c.close(0));
+        } else {
+            try t.expectEqual(@as(c_int, 0), std.c.fcntl(0, std.posix.F.SETFD, flags | std.posix.FD_CLOEXEC));
+        }
         var missing = request;
         missing.argv = &.{"/does-not-exist/tms-test"};
         missing.stdin = .ignore;
+        if (std.mem.eql(u8, mode, "failed-cwd")) missing.cwd = "/does-not-exist/tms-cwd";
         try t.expectError(error.FileNotFound, process.replace(io, missing));
+        if (closed) {
+            try t.expectEqual(@as(c_int, -1), std.c.fcntl(0, std.posix.F.GETFD));
+            try t.expectEqual(std.c.E.BADF, std.c.errno(@as(c_int, -1)));
+            try std.Io.Threaded.dup2(saved, 0);
+        } else {
+            try t.expectEqual(flags | std.posix.FD_CLOEXEC, std.c.fcntl(0, std.posix.F.GETFD));
+        }
+        try t.expectEqual(@as(c_int, 0), std.c.fcntl(0, std.posix.F.SETFD, flags));
         const after = try std.Io.Dir.cwd().realPathFileAlloc(io, ".", a);
         defer a.free(after);
         try t.expectEqualStrings(before, after);
     }
     if (std.mem.startsWith(u8, mode, "replace")) {
+        if (std.mem.eql(u8, mode, "replace-closed-ignore"))
+            try t.expectEqual(@as(c_int, 0), std.c.close(0));
         var pid_buffer: [32]u8 = undefined;
         const pid = try std.fmt.bufPrint(&pid_buffer, "{d}\n", .{std.c.getpid()});
         try std.Io.File.stdout().writeStreamingAll(io, pid);
         var replacement = request;
         replacement.argv = &.{
             "/bin/sh", "-c",
+            \\: <&0 || exit 91
             \\printf '%s\n' "$$"
             \\IFS= read -r line || line=EOF
             \\printf '%s|%s|%s' "$line" "$TMS_VALUE" "$PWD"
@@ -111,20 +144,154 @@ fn captureAllocated(allocator: std.mem.Allocator) !void {
 }
 
 test "allocation failure while a child fills both pipes does not hang" {
+    try checkHelper("allocation-failure", false);
+}
+
+fn outputFailingAllocator(backing: std.mem.Allocator, index: usize) t.FailingAllocator {
+    // Successful remaps do not advance fail_index. Force growth through alloc,
+    // otherwise Linux mremap can keep the infinite-output fixture alive.
+    return .init(backing, .{ .fail_index = index, .resize_fail_index = 0 });
+}
+
+fn checkOutputAllocationFailures(path: []const u8) !void {
+    const pid_path = try std.fs.path.join(a, &.{ path, "allocation.pid" });
+    defer a.free(pid_path);
     for (0..8) |index| {
-        var failing: t.FailingAllocator = .init(a, .{ .fail_index = index });
+        std.Io.Dir.cwd().deleteFile(io, pid_path) catch |err| switch (err) {
+            error.FileNotFound => {},
+            else => return err,
+        };
+        var failing = outputFailingAllocator(a, index);
         const output = process.capture(io, failing.allocator(), .{
             .argv = &.{
                 "/bin/sh", "-c",
+                \\printf '%s\n' $$ > allocation.pid
                 \\while :; do
                 \\printf '0123456789012345678901234567890123456789012345678901234567890123456789'
                 \\printf '0123456789012345678901234567890123456789012345678901234567890123456789' >&2
                 \\done
             },
             .stdin = .ignore,
+            .cwd = path,
         });
         try t.expectError(error.OutOfMemory, output);
+        try t.expect(failing.has_induced_failure);
+        try t.expectEqual(failing.allocated_bytes, failing.freed_bytes);
+        const pid = readPid(pid_path) catch |err| {
+            // Initial buffer allocation can fail before the shell starts.
+            if (index < 2 and (err == error.FileNotFound or err == error.InvalidCharacter)) continue;
+            return err;
+        };
+        try expectReaped(pid);
     }
+}
+
+test "capture cancellation kills and reaps a child filling both pipes" {
+    try checkHelper("cancel", false);
+}
+
+const CaptureCancellation = struct {
+    canceled: bool = false,
+
+    fn run(self: *CaptureCancellation, path: []const u8) void {
+        const output = process.capture(io, a, .{
+            .argv = &.{
+                "/bin/sh", "-c",
+                \\printf '%s\n' $$ > capture.pid
+                \\while :; do printf 'stdout'; printf 'stderr' >&2; done
+            },
+            .cwd = path,
+            .stdin = .ignore,
+        }) catch |err| {
+            self.canceled = err == error.Canceled;
+            return;
+        };
+        freeOutput(output);
+    }
+};
+
+fn checkCaptureCancellation(path: []const u8) !void {
+    const pid_path = try std.fs.path.join(a, &.{ path, "capture.pid" });
+    defer a.free(pid_path);
+    var state: CaptureCancellation = .{};
+    var group: std.Io.Group = .init;
+    defer group.cancel(io);
+    try group.concurrent(io, CaptureCancellation.run, .{ &state, path });
+    var pid: std.c.pid_t = 0;
+    for (0..1000) |_| {
+        pid = readPid(pid_path) catch |err| switch (err) {
+            error.FileNotFound, error.InvalidCharacter => 0,
+            else => return err,
+        };
+        if (pid != 0) break;
+        try std.Io.sleep(io, .fromMilliseconds(2), .awake);
+    }
+    try t.expect(pid > 0);
+    try std.Io.sleep(io, .fromMilliseconds(20), .awake);
+    group.cancel(io);
+    try t.expect(state.canceled);
+    try expectReaped(pid);
+}
+
+fn readPid(path: []const u8) !std.c.pid_t {
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, path, a, .limited(32));
+    defer a.free(bytes);
+    return std.fmt.parseInt(std.c.pid_t, std.mem.trim(u8, bytes, " \n"), 10);
+}
+
+fn expectReaped(pid: std.c.pid_t) !void {
+    try t.expectEqual(@as(c_int, -1), std.c.kill(pid, @fromBackingInt(@intCast(0))));
+    try t.expectEqual(std.c.E.SRCH, std.c.errno(@as(c_int, -1)));
+}
+
+test "output allocation failure cannot be bypassed by successful remaps" {
+    var failing = outputFailingAllocator(remapping_allocator, 2);
+    const result = process.capture(io, failing.allocator(), .{
+        .argv = &.{
+            "/bin/sh", "-c",
+            \\i=0
+            \\while [ "$i" -lt 10000 ]; do
+            \\printf '0123456789abcdef0123456789abcdef'
+            \\printf 'fedcba9876543210fedcba9876543210' >&2
+            \\i=$((i+1))
+            \\done
+        },
+        .stdin = .ignore,
+    });
+    const observed: anyerror!void = if (result) |output| blk: {
+        failing.allocator().free(output.stdout);
+        failing.allocator().free(output.stderr);
+        break :blk {};
+    } else |err| err;
+    try t.expectError(error.OutOfMemory, observed);
+    try t.expect(failing.has_induced_failure);
+    try t.expectEqual(failing.allocated_bytes, failing.freed_bytes);
+}
+
+// Model Linux's moving mremap even when the host allocator cannot grow in place.
+const remapping_allocator: std.mem.Allocator = .{
+    .ptr = undefined,
+    .vtable = &.{
+        .alloc = remapAlloc,
+        .resize = std.mem.Allocator.noResize,
+        .remap = remapGrowing,
+        .free = remapFree,
+    },
+};
+
+fn remapAlloc(_: *anyopaque, len: usize, alignment: std.mem.Alignment, ra: usize) ?[*]u8 {
+    return a.rawAlloc(len, alignment, ra);
+}
+
+fn remapGrowing(_: *anyopaque, memory: []u8, alignment: std.mem.Alignment, len: usize, ra: usize) ?[*]u8 {
+    const replacement = a.rawAlloc(len, alignment, ra) orelse return null;
+    @memcpy(replacement[0..@min(memory.len, len)], memory[0..@min(memory.len, len)]);
+    a.rawFree(memory, alignment, ra);
+    return replacement;
+}
+
+fn remapFree(_: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ra: usize) void {
+    a.rawFree(memory, alignment, ra);
 }
 
 test "capture and inherit preserve stdin cwd and environment" {
@@ -138,6 +305,104 @@ test "replace preserves PID streams cwd environment and stdin mode" {
     try checkHelper("replace", false);
     try checkHelper("replace-ignore", true);
     try checkHelper("failed", false);
+}
+
+test "replace restores closed stdin after failed exec in an isolated child" {
+    try checkHelper("failed-closed", false);
+}
+
+test "replace restores stdin descriptor flags and cwd after failed exec" {
+    try checkHelper("failed-flags", false);
+    try checkHelper("failed-cwd", false);
+}
+
+test "replace ignored stdin stays open across exec when initially closed" {
+    try checkHelper("replace-closed-ignore", true);
+}
+
+test "replace restores stdin after descriptor setup failures in isolated children" {
+    try checkHelper("quota-duplicate", false);
+    try checkHelper("quota-null-open", false);
+    try checkHelper("quota-closed-null-open", false);
+    try checkHelper("quota-cwd-open", false);
+}
+
+fn checkReplacementSetupFailure(mode: []const u8) !void {
+    const before = try std.Io.Dir.cwd().realPathFileAlloc(io, ".", a);
+    defer a.free(before);
+    const flags = std.c.fcntl(0, std.posix.F.GETFD);
+    try t.expect(flags >= 0);
+    const saved = std.c.fcntl(0, std.posix.F.DUPFD_CLOEXEC, @as(c_int, 3));
+    try t.expect(saved >= 0);
+    defer _ = std.c.close(saved);
+    const closed = std.mem.eql(u8, mode, "quota-closed-null-open") or
+        std.mem.eql(u8, mode, "quota-cwd-open");
+    if (closed) {
+        try t.expectEqual(@as(c_int, 0), std.c.close(0));
+    } else {
+        try t.expectEqual(@as(c_int, 0), std.c.fcntl(0, std.posix.F.SETFD, flags | std.posix.FD_CLOEXEC));
+    }
+    const expected = if (std.mem.eql(u8, mode, "quota-duplicate"))
+        error.DuplicateStdinFailed
+    else
+        error.ProcessFdQuotaExceeded;
+    try t.expectError(expected, replaceAtFdLimit(mode));
+    if (closed) {
+        try t.expectEqual(@as(c_int, -1), std.c.fcntl(0, std.posix.F.GETFD));
+        try t.expectEqual(std.c.E.BADF, std.c.errno(@as(c_int, -1)));
+        try std.Io.Threaded.dup2(saved, 0);
+    } else {
+        try t.expectEqual(flags | std.posix.FD_CLOEXEC, std.c.fcntl(0, std.posix.F.GETFD));
+    }
+    try t.expectEqual(@as(c_int, 0), std.c.fcntl(0, std.posix.F.SETFD, flags));
+    const after = try std.Io.Dir.cwd().realPathFileAlloc(io, ".", a);
+    defer a.free(after);
+    try t.expectEqualStrings(before, after);
+}
+
+fn replaceAtFdLimit(mode: []const u8) !void {
+    var limit: std.c.rlimit = undefined;
+    try t.expectEqual(@as(c_int, 0), std.c.getrlimit(.NOFILE, &limit));
+    defer _ = std.c.setrlimit(.NOFILE, &limit);
+    var reduced = limit;
+    reduced.cur = if (std.mem.eql(u8, mode, "quota-null-open"))
+        @min(limit.cur, 64)
+    else if (std.mem.eql(u8, mode, "quota-cwd-open"))
+        1
+    else
+        0;
+    try t.expectEqual(@as(c_int, 0), std.c.setrlimit(.NOFILE, &reduced));
+    var occupied: [64]c_int = undefined;
+    var count: usize = 0;
+    defer for (occupied[0..count]) |fd| {
+        _ = std.c.close(fd);
+    };
+    if (std.mem.eql(u8, mode, "quota-null-open")) {
+        while (true) {
+            const fd = std.c.open("/dev/null", .{ .ACCMODE = .RDONLY, .CLOEXEC = true });
+            if (fd < 0) {
+                try t.expectEqual(std.c.E.MFILE, std.c.errno(fd));
+                break;
+            }
+            occupied[count] = fd;
+            count += 1;
+        }
+        try t.expect(count > 0);
+        count -= 1;
+        try t.expectEqual(@as(c_int, 0), std.c.close(occupied[count]));
+        // Exactly one slot: saving stdin succeeds, then opening /dev/null fails.
+    }
+    var descriptors: [64]c_int = undefined;
+    for (&descriptors, 0..) |*flags, fd|
+        flags.* = std.c.fcntl(@as(c_int, @intCast(fd)), std.posix.F.GETFD);
+    const failure = process.replace(io, .{
+        .argv = &.{"/does-not-exist/tms-test"},
+        .cwd = ".",
+        .stdin = .ignore,
+    }) catch |err| err;
+    for (descriptors, 0..) |flags, fd|
+        try t.expectEqual(flags, std.c.fcntl(@as(c_int, @intCast(fd)), std.posix.F.GETFD));
+    return failure;
 }
 
 test "capture inherits the parent environment and retains signal status" {
@@ -182,6 +447,9 @@ fn checkHelper(mode: []const u8, ignored: bool) !void {
     try reader.fillRemaining(.{ .duration = .{ .clock = .awake, .raw = .fromSeconds(15) } });
     try reader.checkAnyError();
     const term = try child.wait(io);
+    if (!term.success() and !(term == .exited and term.exited == 37))
+        std.debug.print("child helper {s}: {t}\n{s}", .{ mode, term, reader.reader(1).buffered() });
+    try t.expect(term == .exited);
     try t.expectEqual(@as(u8, 37), term.exited);
     var stdout = reader.reader(0).buffered();
     if (std.mem.startsWith(u8, mode, "replace")) {
