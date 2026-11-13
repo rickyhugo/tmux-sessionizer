@@ -225,7 +225,9 @@ pub fn decode(comptime T: type, a: A, value: Value) anyerror!T {
         },
         .@"struct" => |s| blk: {
             if (value != .table and value != .array) return error.InvalidConfigType;
-            if (value == .array and value.array.len != s.field_names.len) return error.InvalidConfigType;
+            // Serde's struct visitor consumes only the declared fields. Keep the
+            // minimum length check before indexing, but do not decode its tail.
+            if (value == .array and value.array.len < s.field_names.len) return error.InvalidConfigType;
             var result: T = undefined;
             inline for (s.field_names, s.field_types, s.field_attrs, 0..) |name, Field, attrs, i| {
                 if (if (value == .table) value.table.get(name) else value.array[i]) |v| {

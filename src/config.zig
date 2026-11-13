@@ -1003,6 +1003,51 @@ test "load diagnostics preserve enum representation, variant, and indexed keys" 
     }
 }
 
+test "sequence structs ignore trailing values without decoding their types" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const Case = struct { template: []const u8, has_fields: bool = true };
+    inline for ([_]Case{
+        .{ .template = "session_configs = {{a = [\"ok\"{s}]}}" },
+        .{ .template = "search_dirs = [[\"path\", 7{s}]]" },
+        .{ .template = "sessions = [{{windows = [[\"window\", \"path\", [], \"cmd\"{s}]]}}]" },
+        .{ .template = "sessions = [[\"session\", \"path\", []{s}]]" },
+        .{ .template = "picker_colors = [\"red\", \"blue\", \"black\", \"green\", \"white\"{s}]" },
+        .{ .template = "sessions = [{{windows = [{{panes = [[{s}]]}}]}}]", .has_fields = false },
+    }) |case| {
+        const baseline = try toml.decode(Config, a, try toml.parse(a, try std.fmt.allocPrint(a, case.template, .{""})));
+        const expected = try toml.encode(a, baseline);
+        for ([_][]const u8{ "{Rgb = [\"invalid\"]}", "[false, {bad = [1, 2]}]", "false, nan, 42" }) |unused| {
+            const tail = if (case.has_fields) try std.fmt.allocPrint(a, ", {s}", .{unused}) else unused;
+            const actual = try toml.decode(Config, a, try toml.parse(a, try std.fmt.allocPrint(a, case.template, .{tail})));
+            try std.testing.expectEqualStrings(expected, try toml.encode(a, actual));
+        }
+    }
+}
+
+test "sequence struct tails do not bypass declared field or TOML validation" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const Case = struct { text: []const u8, err: anyerror = error.InvalidConfigType };
+    for ([_]Case{
+        .{ .text = "session_configs = {a = [{}, 42]}" },
+        .{ .text = "search_dirs = [[{}, 7, 42]]" },
+        .{ .text = "sessions = [{windows = [[{}, 'path', [], 'cmd', 42]]}]" },
+        .{ .text = "sessions = [[{}, 'path', [], 42]]" },
+        .{ .text = "picker_colors = [{Rgb=['bad']}, 'blue', 'black', 'green', 'white', 42]", .err = error.InvalidColor },
+    }) |case| {
+        try std.testing.expectError(case.err, toml.decode(Config, a, try toml.parse(a, case.text)));
+    }
+    for ([_][]const u8{
+        "session_configs = {a = ['ok', 1e999]}",
+        "session_configs = {a = ['ok', \"bad\\q\"]}",
+    }) |text| {
+        try std.testing.expectError(error.InvalidToml, toml.parse(a, text));
+    }
+}
+
 test "load diagnostics describe short sequence structs and their nested keys" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -1020,7 +1065,9 @@ test "load diagnostics describe short sequence structs and their nested keys" {
         .{ .text = "sessions = [['a', 'b']]", .expected = "invalid length 2, expected struct Session with 3 elements for key `sessions[0]`" },
         .{ .text = "search_dirs = [['a']]", .expected = "invalid length 1, expected struct SearchDirectory with 2 elements for key `search_dirs[0]`" },
         .{ .text = "sessions = [{windows = [['a']]}]", .expected = "invalid length 1, expected struct Window with 4 elements for key `sessions[0]windows[0]`" },
+        .{ .text = "sessions = [{windows = [['a', 'b', []]]}]", .expected = "invalid length 3, expected struct Window with 4 elements for key `sessions[0]windows[0]`" },
         .{ .text = "picker_colors = []", .expected = "invalid length 0, expected struct PickerColorConfig with 5 elements for key `picker_colors`" },
+        .{ .text = "picker_colors = ['red', 'blue', 'black', 'green']", .expected = "invalid length 4, expected struct PickerColorConfig with 5 elements for key `picker_colors`" },
         .{ .text = "session_configs = {a = []}", .expected = "invalid length 0, expected struct SessionConfig with 1 element for key `session_configs.a`" },
     }) |case| {
         try Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = case.text });

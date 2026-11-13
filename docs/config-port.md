@@ -12,6 +12,12 @@ not survive a save. Decoding retains the config crate's Boolean, number, string,
 enum-table, and sequence-struct conversions. Ratatui's legacy color maps retain
 their stricter untagged decoding.
 
+Sequence structs require their declared field count as a minimum, including
+optional fields. Like the Rust Serde visitor, decoding consumes that prefix and
+ignores trailing values without decoding their types. This also applies to the
+zero-field `Pane`. The TOML parser still validates the entire source, including
+unused trailing values. Short sequences retain their indexed length diagnostic.
+
 `load` selects only `TMS_CONFIG_FILE` when present. Otherwise it loads
 `~/.config/tms/config.toml` and then the platform config location. Saving selects
 the override or platform location. Missing files are optional. Extension inference,
@@ -176,6 +182,22 @@ Review verification on macOS:
 
 This workstream does not claim the full application, ranking, or terminal suite.
 Those remain integration checks owned by the parent.
+
+### Overlong sequence follow-up
+
+Rust accepts overlong `SessionConfig`, `SearchDirectory`, `Window`, `Session`,
+`PickerColorConfig`, and zero-field `Pane` sequences. The decoder now checks
+the minimum length before indexing, rather than requiring an exact length.
+New module regressions compare exact-length exports with 18 differently typed
+tail variants. They also verify that invalid declared fields and malformed TOML
+in unused tails still fail. Short-sequence checks include the one-element-short
+`Window` and `PickerColorConfig` boundaries.
+
+On macOS, all 18 configuration tests pass. Focused Rust/Zig comparisons pass
+24 exact/overlong exports, five short-sequence diagnostics, and five declared
+field rejection controls. Both binaries also reject two malformed unused-tail
+inputs. Invalid color rejection is checked by status; its pre-existing detailed
+diagnostic wording is outside this follow-up. No Linux runtime check is claimed.
 
 ## Attribution
 
