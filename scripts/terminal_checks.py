@@ -20,15 +20,22 @@ import sys
 import tempfile
 import termios
 import time
+from typing import NamedTuple
 import unicodedata
 import uuid
+
+
+class CellStyle(NamedTuple):
+    bold: bool = False
+    foreground: int | tuple[int, int, int] | None = None
+    background: int | tuple[int, int, int] | None = None
 
 
 class Screen:
     def __init__(self, rows=24, cols=100):
         self.rows, self.cols = rows, cols
         self.x = self.y = 0
-        self.bold = False
+        self.style = CellStyle()
         self.alternate = False
         self.cursor_visible = True
         self.invalid_positions = []
@@ -38,7 +45,7 @@ class Screen:
 
     def clear(self):
         self.cells = [[" " for _ in range(self.cols)] for _ in range(self.rows)]
-        self.styles = [[False for _ in range(self.cols)] for _ in range(self.rows)]
+        self.styles = [[CellStyle()] * self.cols for _ in range(self.rows)]
 
     def resize(self, rows, cols):
         old, styles = self.cells, self.styles
@@ -93,27 +100,47 @@ class Screen:
                         for y in range(self.y, self.rows):
                             start = self.x if y == self.y else 0
                             self.cells[y][start:] = [" "] * (self.cols - start)
-                            self.styles[y][start:] = [False] * (self.cols - start)
+                            self.styles[y][start:] = [CellStyle()] * (self.cols - start)
                 elif op == "K":
                     start = 0 if vals[0] in (1, 2) else self.x
                     end = self.x + 1 if vals[0] == 1 else self.cols
                     self.cells[self.y][start:end] = [" "] * (end - start)
-                    self.styles[self.y][start:end] = [False] * (end - start)
+                    self.styles[self.y][start:end] = [CellStyle()] * (end - start)
                 elif op == "m":
                     i = 0
                     while i < len(vals):
                         if vals[i] in (38, 48) and i + 1 < len(vals):
+                            color = None
+                            if vals[i + 1] == 2 and i + 4 < len(vals):
+                                color = tuple(vals[i + 2 : i + 5])
+                            elif vals[i + 1] == 5 and i + 2 < len(vals):
+                                color = vals[i + 2]
+                            if color is not None:
+                                field = "foreground" if vals[i] == 38 else "background"
+                                self.style = self.style._replace(**{field: color})
                             i += 5 if vals[i + 1] == 2 else 3
                             continue
-                        if vals[i] in (0, 22):
-                            self.bold = False
+                        if vals[i] == 0:
+                            self.style = CellStyle()
+                        elif vals[i] == 22:
+                            self.style = self.style._replace(bold=False)
                         elif vals[i] == 1:
-                            self.bold = True
+                            self.style = self.style._replace(bold=True)
+                        elif 30 <= vals[i] <= 37 or 90 <= vals[i] <= 97:
+                            color = vals[i] - (30 if vals[i] < 90 else 82)
+                            self.style = self.style._replace(foreground=color)
+                        elif 40 <= vals[i] <= 47 or 100 <= vals[i] <= 107:
+                            color = vals[i] - (40 if vals[i] < 100 else 92)
+                            self.style = self.style._replace(background=color)
+                        elif vals[i] == 39:
+                            self.style = self.style._replace(foreground=None)
+                        elif vals[i] == 49:
+                            self.style = self.style._replace(background=None)
                         i += 1
                 elif op == "X":
                     end = min(self.cols, self.x + n)
                     self.cells[self.y][self.x : end] = [" "] * (end - self.x)
-                    self.styles[self.y][self.x : end] = [False] * (end - self.x)
+                    self.styles[self.y][self.x : end] = [CellStyle()] * (end - self.x)
                 elif op in "hl" and private:
                     if 1049 in vals or 47 in vals:
                         self.alternate = op == "h"
@@ -150,7 +177,7 @@ class Screen:
                     self.cells.pop(0)
                     self.styles.pop(0)
                     self.cells.append([" "] * self.cols)
-                    self.styles.append([False] * self.cols)
+                    self.styles.append([CellStyle()] * self.cols)
                 else:
                     self.y += 1
             elif c == "\b":
@@ -170,9 +197,10 @@ class Screen:
                         self.x = 0
                         self.y = min(self.rows - 1, self.y + 1)
                     self.cells[self.y][self.x] = c
-                    self.styles[self.y][self.x] = self.bold
+                    self.styles[self.y][self.x] = self.style
                     if width == 2 and self.x + 1 < self.cols:
                         self.cells[self.y][self.x + 1] = ""
+                        self.styles[self.y][self.x + 1] = self.style
                     self.x += width
         return replies
 
@@ -467,7 +495,10 @@ def artifact(binary):
 
 
 def ready(screen, total=5):
-    return f"{total}/{total}" in screen.text and "> " in screen.text
+    return (
+        re.search(rf"(?<!\d){total}/{total}(?!\d)", screen.text) is not None
+        and "> " in screen.text
+    )
 
 
 class BaselineDefect(AssertionError):
@@ -478,10 +509,10 @@ def run_pty_checks(binary, output, strict):
     results = []
     fixture = Fixture()
 
-    def case(name, check):
+    def case(name, check, args=(), **size):
         terminal = None
         try:
-            terminal = fixture.terminal(binary)
+            terminal = fixture.terminal(binary, args, **size)
             check(terminal)
             results.append({"name": name, "status": "PASS"})
         except (AssertionError, OSError) as error:
@@ -627,17 +658,111 @@ def run_pty_checks(binary, output, strict):
 
     case("tiny-terminal", tiny)
 
-    def terminate(t):
+    def terminate(t, signum):
         t.wait(ready, "picker ready")
-        t.snapshot("before SIGTERM")
-        os.kill(t.target_pid, signal.SIGTERM)
+        t.snapshot("before " + signum.name)
+        os.kill(t.target_pid, signum)
         t.exit(expected=None)
         try:
             t.restored()
         except AssertionError as error:
             raise BaselineDefect(str(error)) from error
 
-    case("sigterm-restoration", terminate)
+    for signum in (signal.SIGTERM, signal.SIGHUP):
+        case(
+            signum.name.lower() + "-restoration",
+            lambda t, signum=signum: terminate(t, signum),
+        )
+
+    fixture.configure(
+        extra=(
+            "[picker_colors]\n"
+            'highlight_color = "#123456"\n'
+            'highlight_text_color = "#abcdef"\n'
+            'border_color = "#234567"\n'
+            'info_color = "#345678"\n'
+            'prompt_color = "#456789"\n'
+        )
+    )
+
+    def configured_colors(t):
+        t.wait(ready, "configured picker ready")
+        rows = ["".join(cells) for cells in t.screen.cells]
+        selected = next(
+            (i for i, row in enumerate(rows[:-1]) if row.startswith("> ")), None
+        )
+        counter = next(
+            (i for i, row in enumerate(rows) if row.startswith("5/5─")), None
+        )
+        assert selected is not None, "selected row is missing"
+        assert counter is not None, "counter and border are missing"
+        observed = {
+            "prompt": t.screen.styles[-1][0].foreground,
+            "selected_text": t.screen.styles[selected][2].foreground,
+            "selected_background": t.screen.styles[selected][2].background,
+            "info": t.screen.styles[counter][0].foreground,
+            "border": t.screen.styles[counter][3].foreground,
+        }
+        t.events.append({"configured_colors": observed})
+        assert rows[-1].startswith("> "), "rendered prompt is missing"
+        assert observed == {
+            "prompt": (0x45, 0x67, 0x89),
+            "selected_text": (0xAB, 0xCD, 0xEF),
+            "selected_background": (0x12, 0x34, 0x56),
+            "info": (0x34, 0x56, 0x78),
+            "border": (0x23, 0x45, 0x67),
+        }, observed
+        t.send(b"\x03", "cancel configured picker")
+        t.exit()
+        t.restored()
+
+    case("configured-colors", configured_colors)
+
+    directories = [fixture.home / name for name in ("path with café", "path with 界")]
+    filenames = ["FIRST café file.txt", "SECOND 界 file.txt"]
+    for directory, filename in zip(directories, filenames):
+        directory.mkdir()
+        (directory / filename).touch()
+    fixture.config.write_text(
+        'input_position = "Bottom"\nsearch_dirs = [\n'
+        + "".join(
+            f"{{path = {json.dumps(str(directory))}, depth = 1}},\n"
+            for directory in directories
+        )
+        + "]\n"
+    )
+
+    def directory_preview(t):
+        for index, filename in enumerate(filenames):
+            if index:
+                t.send(b"\x1b[A", "select second directory")
+            t.wait(
+                lambda s: (
+                    ready(s, 2)
+                    and any(
+                        "".join(row[: s.cols // 2]).rstrip()
+                        == "> " + str(directories[index])
+                        for row in s.cells
+                    )
+                    and filename
+                    in "\n".join("".join(row[s.cols // 2 :]) for row in s.cells)
+                    and filenames[1 - index] not in s.text
+                ),
+                f"directory {index + 1} preview with spaces and Unicode",
+            )
+        t.send(b"\x1b", "cancel directory picker")
+        t.exit()
+        t.restored()
+        assert all(
+            not (directory / "must-not-create").exists() for directory in directories
+        ), "cancel created a repository"
+
+    case(
+        "directory-preview",
+        directory_preview,
+        args=("init-repo", "must-not-create"),
+        cols=320,
+    )
 
     fixture.configure(extra='[shortcuts]\n"ctrl-q" = "cancel"\n')
 
@@ -845,16 +970,17 @@ def run_popup_checks(binary, output):
             assert "> active.repo" not in "".join(t.screen.cells[row]), (
                 "active-style assertion must not inspect the selection highlight"
             )
-            assert all(t.screen.styles[row][col : col + len("active.repo")]), (
-                "active normalized session is not bold"
-            )
+            assert all(
+                style.bold
+                for style in t.screen.styles[row][col : col + len("active.repo")]
+            ), "active normalized session is not bold"
             row = next(
                 i for i, cells in enumerate(t.screen.cells) if "alpha" in "".join(cells)
             )
             col = "".join(t.screen.cells[row]).index("alpha")
-            assert not any(t.screen.styles[row][col : col + len("alpha")]), (
-                "inactive unselected session is bold"
-            )
+            assert not any(
+                style.bold for style in t.screen.styles[row][col : col + len("alpha")]
+            ), "inactive unselected session is bold"
             t.send(b"active.repo", "filter normalized active session")
             t.wait(
                 lambda s: "1/5" in s.text and "> active.repo" in s.text,
@@ -922,6 +1048,68 @@ def run_popup_checks(binary, output):
             )
 
         popup("window-preview", ["windows"], window_preview)
+
+        fixture.tmux("select-window", "-t", "origin:0")
+        client.wait(lambda s: "ORIGIN_READY" in s.text, "return to origin window")
+        for suffix in ("A", "B"):
+            fixture.tmux(
+                "new-session",
+                "-d",
+                "-s",
+                "vertical-" + suffix.lower(),
+                f"printf 'VERTICAL_{suffix}_TOKEN\\n'; exec /bin/sh",
+            )
+        client.resize(40, 50)
+        client.wait(
+            lambda s: (
+                fixture.tmux(
+                    "display-message",
+                    "-p",
+                    "-c",
+                    target,
+                    "#{client_width}x#{client_height}",
+                ).stdout.strip()
+                == "50x40"
+            ),
+            "narrow attached client",
+        )
+
+        def vertical_preview(t):
+            t.send(b"vertical-", "filter two preview sessions")
+            for index, suffix in enumerate(("A", "B")):
+                if index:
+                    t.send(b"\x1b[A", "select second preview session")
+                name = "vertical-" + suffix.lower()
+                token = f"VERTICAL_{suffix}_TOKEN"
+                t.wait(
+                    lambda s: (
+                        any(
+                            line.strip(" │") == "> " + name
+                            for line in s.text.splitlines()
+                        )
+                        and token in s.text
+                        and f"VERTICAL_{'B' if suffix == 'A' else 'A'}_TOKEN"
+                        not in s.text
+                    ),
+                    "selected session preview " + suffix,
+                )
+                rows = ["".join(row) for row in t.screen.cells]
+                preview_row = next(i for i, row in enumerate(rows) if token in row)
+                selected_row = next(
+                    i for i, row in enumerate(rows) if row.strip(" │") == "> " + name
+                )
+                assert preview_row < selected_row, "preview is not above the list"
+                assert any(
+                    row.count("─") > 30 for row in rows[preview_row + 1 : selected_row]
+                ), "missing horizontal divider below vertical preview"
+            t.send(b"\r", "confirm second preview session")
+            t.wait(
+                lambda s: selected_session() == "vertical-b",
+                "second preview session selected",
+            )
+            t.events.append({"chosen_session": selected_session()})
+
+        popup("vertical-preview-selection", ["switch"], vertical_preview)
     except (AssertionError, subprocess.SubprocessError) as error:
         results.append({"name": "popup-setup", "status": "FAIL", "detail": str(error)})
     finally:
@@ -957,7 +1145,7 @@ def main():
     parser.add_argument(
         "--require-improvements",
         action="store_true",
-        help="Make known Rust cursor, tiny-size, and signal defects fail",
+        help="Make known Rust cursor, tiny-size, SIGTERM, and SIGHUP defects fail",
     )
     parser.add_argument("--pty-only", action="store_true")
     args = parser.parse_args()

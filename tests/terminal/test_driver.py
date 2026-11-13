@@ -45,7 +45,39 @@ class ScreenTests(unittest.TestCase):
     def test_color_values_are_not_bold_attributes(self):
         screen = driver.Screen(3, 10)
         screen.feed(b"\x1b[1m\x1b[38;5;0mA\x1b[22m\x1b[38;2;1;0;22mB")
-        self.assertEqual(screen.styles[0][:2], [True, False])
+        self.assertEqual(
+            screen.styles[0][:2],
+            [driver.CellStyle(True, 0), driver.CellStyle(False, (1, 0, 22))],
+        )
+
+    def test_ansi_colors_and_resets(self):
+        screen = driver.Screen(3, 10)
+        screen.feed(
+            b"\x1b[31;104mA\x1b[38;5;123;48;2;4;5;6mB"
+            b"\x1b[39mC\x1b[49mD\x1b[1;92;43mE\x1b[22mF\x1b[0mG"
+        )
+        self.assertEqual(
+            screen.styles[0][:7],
+            [
+                driver.CellStyle(False, 1, 12),
+                driver.CellStyle(False, 123, (4, 5, 6)),
+                driver.CellStyle(False, None, (4, 5, 6)),
+                driver.CellStyle(),
+                driver.CellStyle(True, 10, 3),
+                driver.CellStyle(False, 10, 3),
+                driver.CellStyle(),
+            ],
+        )
+        screen.resize(4, 12)
+        self.assertEqual(screen.styles[0][1].background, (4, 5, 6))
+        screen.feed(b"\x1b[1;1H\x1b[2K")
+        self.assertEqual(screen.styles[0], [driver.CellStyle()] * 12)
+
+    def test_ready_requires_exact_counts(self):
+        for counter in ("15/5", "5/50", "15/50"):
+            with self.subTest(counter=counter):
+                self.assertFalse(driver.ready(SimpleNamespace(text=counter + "\n> ")))
+        self.assertTrue(driver.ready(SimpleNamespace(text="5/5───\n> ")))
 
     def test_restoration_modes_and_queries(self):
         screen = driver.Screen(3, 10)

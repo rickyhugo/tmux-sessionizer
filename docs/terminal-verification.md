@@ -75,9 +75,9 @@ Fixture directories and private servers are removed at the end.
 
 JSON transcripts include before-action screens, input bytes, fresh screens, cursor positions, observed terminal modes, and chosen tmux state.
 The `.vt` files retain the original terminal output.
-The VT reader tracks Unicode display cells, cursor visibility, alternate-screen mode, and bold styling.
-The driver suite has 14 tests.
-They cover split UTF-8, split control sequences, erasure, color attributes, terminal queries, bounds, rejection of an exit-only process, and cleanup of an attached tmux client.
+The VT reader tracks Unicode display cells, cursor visibility, alternate-screen mode, bold styling, and ANSI foreground and background colors.
+The driver suite now has 16 tests.
+They cover split UTF-8, split control sequences, erasure, color attributes and resets, exact readiness counts, terminal queries, bounds, rejection of an exit-only process, and cleanup of an attached tmux client.
 Fake-executable tests reject unsafe launcher arguments without calling real tmux.
 They also verify that valid attach and switch calls exec the target with private options.
 A continuous writer on a real PTY tests timeout failure and cleanup.
@@ -93,6 +93,49 @@ A supervisor records termios after the target exits but before that revocation.
 Terminal restoration compares flags, speeds, and control characters.
 The comparison ignores only `PENDIN`, the kernel's transient retype-pending flag.
 Raw attributes remain in the transcript.
+
+## Added interaction coverage
+
+A separate run on 2026-11-13 tested the same Rust executable with the extended driver.
+It recorded 17 passes and four explicit baseline defects.
+The original result files and evidence archive remain unchanged.
+
+The added checks cover:
+
+- All five configured `picker_colors` values on rendered cells, including the prompt foreground, selected text foreground and background, border, and counter.
+- Directory previews through `init-repo`, with spaces and Unicode in both directory paths and previewed filenames.
+- Selection of the second directory, replacement of its visible preview, and cancellation without repository creation.
+- A real attached client resized to 50 by 40 cells before opening a popup.
+- Vertical session previews above the list, navigation to the second item, replacement of the visible pane content, and confirmation of that actual tmux session.
+- SIGHUP after picker initialization, with terminal modes observed after the target exits.
+
+Rust exposes `picker_colors.prompt_color`, not a configurable prompt string.
+The color check observes the actual `> ` prompt.
+The VT reader stores immutable per-cell bold, foreground, and background attributes.
+It accepts basic, bright, indexed, and RGB ANSI colors.
+Unit tests check that color payloads do not change bold state and that resets and resize preserve the expected attributes.
+
+SIGHUP is the fourth historical defect.
+The Rust target exits with signal 1 while raw terminal flags and the alternate screen remain enabled.
+Normal mode reports `sighup-restoration` as `BASELINE_DEFECT`.
+The full strict run exits with code 1 and fails exactly `wide-cursor`, `tiny-terminal`, `sigterm-restoration`, and `sighup-restoration`.
+All 17 other checks pass in both modes.
+The 16 terminal-driver unit tests and six compatibility-isolation unit tests pass.
+No benchmark was run for this coverage change.
+
+The separate run directories are `$TMPDIR/opencode/tms-rust-coverage-followup` and `$TMPDIR/opencode/tms-rust-coverage-strict`.
+Each contains `results.json`, raw `.vt` output, and JSON transcripts.
+These directories are local evidence, not additions to the historical archive.
+The executable SHA-256 remains `d3e5deaaa76f4f4208bdaa9e52759dfaff5c14788742fffe08b8ef784b93a1d0`.
+
+The added coverage was run with:
+
+```sh
+mise exec -- python -m unittest discover -s tests/terminal -v
+mise exec -- python -m unittest discover -s tests/compat -v
+mise exec -- python scripts/terminal_checks.py --binary /Users/hugo.englund/personal/tms-zig-terminal-tests/target/release/tms --output "$TMPDIR/opencode/tms-rust-coverage-followup"
+mise exec -- python scripts/terminal_checks.py --binary /Users/hugo.englund/personal/tms-zig-terminal-tests/target/release/tms --require-improvements --output "$TMPDIR/opencode/tms-rust-coverage-strict"
+```
 
 ## Timing results
 
@@ -172,9 +215,9 @@ The original run directories are under `/private/var/folders/zj/d5cklrtd0cb5nl3s
 
 - The runs verify macOS arm64 only. Linux, musl, macOS x86_64, and Linux arm64 remain unverified.
 - The screen reader implements the VT subset emitted by these runs, not a complete terminal emulator or pixel comparison.
-- Preview coverage uses horizontal panes. Narrow-terminal vertical-preview navigation remains unverified.
+- Vertical directory and window preview layouts remain unverified.
 - Error restoration uses invalid configuration before raw mode. Restoration after a runtime terminal-I/O error remains unverified.
-- SIGTERM is tested. SIGHUP, suspend, and resume remain unverified.
+- SIGTERM and SIGHUP are tested. Suspend and resume remain unverified.
 - Timing covers a unique query entered as one input burst over 1,000 empty repositories. It does not measure preview latency, large Git histories, network filesystems, or human keystroke cadence.
 - No application CPU, syscall, or I/O profile was collected. The timing limiter and observer overhead remain unresolved.
 - No Zig binary was tested. The parent owns that comparison and independent review.
