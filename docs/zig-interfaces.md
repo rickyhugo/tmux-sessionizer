@@ -23,7 +23,8 @@ The build compiles vendored `vendor/tomlc17` by default. `-Dtomlc17=PATH`
 selects another local directory. It attaches `tomlc17.c`, the include directory,
 and libc to config. The native API is pinned at
 `aa4ca1bc5fe6382ac631a8d1428077a9a084a64d` under MIT.
-`vendor/tomlc17/README.md` records the local leap-second compatibility patch.
+`vendor/tomlc17/README.md` records the local timestamp and underflow
+compatibility patches.
 The build fetches no parser; `vendor` is included in package paths.
 
 ## Lifetimes and errors

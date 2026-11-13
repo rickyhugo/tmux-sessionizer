@@ -33,7 +33,10 @@ run = [
 [tasks."test:compat"]
 description = "Compare Zig commands and ranking with the Rust fixtures"
 depends = ["test:harness", "build:release"]
-run = "python3 scripts/compat.py --jj --bin zig-out/bin/tms --oracle zig-out/bin/tms-oracle"
+run = [
+  "python3 scripts/compat.py --jj --bin zig-out/bin/tms --oracle zig-out/bin/tms-oracle",
+  "python3 src/cli/error_check.py --bin zig-out/bin/tms",
+]
 
 [tasks."test:terminal"]
 description = "Exercise the Zig picker in isolated tmux terminals"

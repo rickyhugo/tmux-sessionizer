@@ -51,8 +51,9 @@ MISE_AUTO_INSTALL=false mise exec -- python3 -m unittest discover -s tests/packa
 ```
 
 Command compatibility checks all 42 stored command cases and 25 Rust ranking
-vectors. Strict terminal checks run 21 real PTY/popup scenarios. The picker
-regression task runs nine focused scenarios. Compatibility tasks build the
+vectors, plus CLI error and no-write regressions. Strict terminal checks run
+21 real PTY/popup scenarios. The picker regression task runs 16 focused
+scenarios. Compatibility tasks build the
 release executable before checking it.
 
 Packaging policy tests use an independent notice list. They check real archive
