@@ -16,21 +16,185 @@ pub const Output = struct {
 };
 
 pub fn capture(io: Io, a: A, request: Request) anyerror!Output {
-    _ = .{ io, a, request };
-    return error.NotImplemented;
+    if (request.argv.len == 0) return error.EmptyArgv;
+    var child = try std.process.spawn(io, .{
+        .argv = request.argv,
+        .cwd = cwd(request),
+        .environ_map = request.env,
+        .stdin = switch (request.stdin) {
+            .inherit => .inherit,
+            .ignore => .ignore,
+        },
+        .stdout = .pipe,
+        .stderr = .pipe,
+    });
+    defer child.kill(io);
+
+    var buffer: Io.File.MultiReader.Buffer(2) = undefined;
+    var reader: Io.File.MultiReader = undefined;
+    reader.init(a, io, buffer.toStreams(), &.{ child.stdout.?, child.stderr.? });
+    defer reader.deinit();
+    try reader.checkAnyError();
+    while (reader.fill(4096, .none)) |_| {
+        try reader.checkAnyError();
+    } else |err| switch (err) {
+        error.EndOfStream => {},
+        else => return err,
+    }
+    try reader.checkAnyError();
+    const term = try child.wait(io);
+    const stdout = try reader.toOwnedSlice(0);
+    errdefer a.free(stdout);
+    const stderr = try reader.toOwnedSlice(1);
+    return .{ .term = term, .stdout = stdout, .stderr = stderr };
 }
 
 pub fn inherit(io: Io, request: Request) anyerror!std.process.Child.Term {
-    _ = .{ io, request };
-    return error.NotImplemented;
+    if (request.argv.len == 0) return error.EmptyArgv;
+    var child = try std.process.spawn(io, .{
+        .argv = request.argv,
+        .cwd = cwd(request),
+        .environ_map = request.env,
+        .stdin = switch (request.stdin) {
+            .inherit => .inherit,
+            .ignore => .ignore,
+        },
+    });
+    defer child.kill(io);
+    return try child.wait(io);
 }
 
 pub fn replace(io: Io, request: Request) anyerror!noreturn {
-    _ = .{ io, request };
-    return error.NotImplemented;
+    if (request.argv.len == 0) return error.EmptyArgv;
+    var saved_input: ?Io.File = null;
+    defer if (saved_input) |file| {
+        Io.Threaded.dup2(file.handle, Io.File.stdin().handle) catch {};
+        file.close(io);
+    };
+    if (request.stdin == .ignore) {
+        const null_input = try Io.Dir.openFileAbsolute(io, "/dev/null", .{});
+        defer null_input.close(io);
+        const saved = std.c.fcntl(Io.File.stdin().handle, std.posix.F.DUPFD_CLOEXEC, @as(c_int, 3));
+        if (saved < 0) return error.DuplicateStdinFailed;
+        saved_input = .{ .handle = saved, .flags = .{ .nonblocking = false } };
+        // Replace has no stream options. Restore stdin if exec fails.
+        try Io.Threaded.dup2(null_input.handle, Io.File.stdin().handle);
+    }
+    var saved_cwd: ?Io.Dir = null;
+    defer if (saved_cwd) |dir| {
+        std.process.setCurrentDir(io, dir) catch {};
+        dir.close(io);
+    };
+    if (request.cwd) |path| {
+        saved_cwd = try Io.Dir.cwd().openDir(io, ".", .{});
+        // The 0.17 POSIX replace backend does not apply ReplaceOptions.cwd.
+        try std.process.setCurrentPath(io, path);
+    }
+    return std.process.replace(io, .{
+        .argv = request.argv,
+        .environ_map = request.env,
+    });
 }
 
 pub fn movePath(io: Io, a: A, from: []const u8, to: []const u8) anyerror!void {
-    _ = .{ io, a, from, to };
-    return error.NotImplemented;
+    const dir = Io.Dir.cwd();
+    const destination_stat = dir.statFile(io, to, .{}) catch |err| switch (err) {
+        error.FileNotFound => null,
+        else => return err,
+    };
+    const destination = if (destination_stat != null and destination_stat.?.kind == .directory)
+        try std.fs.path.join(a, &.{ to, std.fs.path.basename(from) })
+    else
+        try a.dupe(u8, to);
+    defer a.free(destination);
+
+    dir.rename(from, dir, destination, io) catch |err| switch (err) {
+        error.CrossDevice => try moveAcrossDevices(io, a, from, destination),
+        else => return err,
+    };
+}
+
+fn cwd(request: Request) std.process.Child.Cwd {
+    return if (request.cwd) |path| .{ .path = path } else .inherit;
+}
+
+fn moveAcrossDevices(io: Io, a: A, from: []const u8, to: []const u8) anyerror!void {
+    const dir = Io.Dir.cwd();
+    const source = try dir.statFile(io, from, .{ .follow_symlinks = false });
+    if (source.kind == .directory) {
+        const source_path = try dir.realPathFileAlloc(io, from, a);
+        defer a.free(source_path);
+        const parent_path = try dir.realPathFileAlloc(io, std.fs.path.dirname(to) orelse ".", a);
+        defer a.free(parent_path);
+        if (std.mem.eql(u8, source_path, parent_path) or
+            (std.mem.startsWith(u8, parent_path, source_path) and
+                (std.mem.endsWith(u8, source_path, "/") or parent_path[source_path.len] == '/')))
+            return error.InvalidDestination;
+    }
+    try copyAcrossDevices(io, a, from, to);
+    try dir.deleteTree(io, from);
+}
+
+fn copyAcrossDevices(io: Io, a: A, from: []const u8, to: []const u8) anyerror!void {
+    const dir = Io.Dir.cwd();
+    const source = try dir.statFile(io, from, .{ .follow_symlinks = false });
+    switch (source.kind) {
+        .file => {
+            try dir.copyFile(from, dir, to, io, .{});
+            const file = try dir.openFile(io, to, .{});
+            defer file.close(io);
+            try file.setTimestamps(io, .{
+                .access_timestamp = .init(source.atime),
+                .modify_timestamp = .{ .new = source.mtime },
+            });
+        },
+        .sym_link => {
+            var link_buffer: [std.fs.max_path_bytes]u8 = undefined;
+            const len = try dir.readLink(io, from, &link_buffer);
+            dir.deleteFile(io, to) catch |err| switch (err) {
+                error.FileNotFound => {},
+                else => return err,
+            };
+            try dir.symLink(io, link_buffer[0..len], to, .{});
+            try dir.setTimestamps(io, to, .{
+                .follow_symlinks = false,
+                .access_timestamp = .init(source.atime),
+                .modify_timestamp = .{ .new = source.mtime },
+            });
+        },
+        .directory => {
+            // Cross-device mv replaces an empty directory, but never merges trees.
+            dir.deleteDir(io, to) catch |err| switch (err) {
+                error.FileNotFound => {},
+                else => return err,
+            };
+            try dir.createDir(io, to, .default_dir);
+            var input = try dir.openDir(io, from, .{ .iterate = true });
+            defer input.close(io);
+            var iterator = input.iterate();
+            while (try iterator.next(io)) |entry| {
+                const source_path = try std.fs.path.join(a, &.{ from, entry.name });
+                defer a.free(source_path);
+                const destination_path = try std.fs.path.join(a, &.{ to, entry.name });
+                defer a.free(destination_path);
+                try copyAcrossDevices(io, a, source_path, destination_path);
+            }
+            var output = try dir.openDir(io, to, .{ .iterate = true });
+            defer output.close(io);
+            try output.setPermissions(io, source.permissions);
+            try dir.setTimestamps(io, to, .{
+                .access_timestamp = .init(source.atime),
+                .modify_timestamp = .{ .new = source.mtime },
+            });
+        },
+        else => return error.UnsupportedFileType,
+    }
+}
+
+test {
+    _ = @import("process/tests.zig");
+}
+
+test "cross-device fallback copies before removing and does not merge" {
+    try @import("process/tests.zig").checkCopyFallback(moveAcrossDevices);
 }
