@@ -48,7 +48,9 @@ Git system and global config are disabled. Git fixture commits use a fixed date.
 The tmux server loads only the fixture config. Its panes run `sleep`, not a user shell configuration.
 
 The `tmux` shim records actual argument arrays as JSON.
-It removes caller socket and config options, then forces the private socket and fixture config.
+It accepts only a separate `-L` and socket value, followed by no command or a command that does not start with `-`.
+It rejects other global options, joined socket selectors, and extra options before the command without launching tmux.
+It replaces the caller's socket selector with the private socket and forces the fixture config. Command arguments remain unchanged.
 A separate fixture-only socket variable prevents a candidate's `TMS_TMUX_SOCKET` value from changing the safety destination.
 State records whether the application requested the expected `-L` socket.
 Attach and switch requests are recorded and return success without attaching a client.

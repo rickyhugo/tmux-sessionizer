@@ -10,8 +10,10 @@ def main():
     args = sys.argv[1:]
     with (root / "tmux-argv.jsonl").open("a") as log:
         log.write(json.dumps(args) + "\n")
-    while args and args[0] in ("-L", "-S", "-f"):
-        args = args[2:]
+    if len(args) < 2 or args[0] != "-L" or (len(args) > 2 and args[2].startswith("-")):
+        print("Expected tmux -L SOCKET [COMMAND ...]", file=sys.stderr)
+        return 2
+    args = args[2:]
     if not args or args[0] in ("attach", "attach-session", "switch-client"):
         target = args[args.index("-t") + 1] if "-t" in args else None
         (root / "client.json").write_text(
