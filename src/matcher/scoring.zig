@@ -399,13 +399,12 @@ test "default general-text scores match upstream score vectors" {
     };
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const allocator = arena.allocator();
     var workspace: Workspace = .{};
     defer workspace.deinit(std.testing.allocator);
     var text_buffer: std.ArrayList(u21) = .empty;
     defer text_buffer.deinit(std.testing.allocator);
     for (cases) |case| {
-        const atom = (try pattern.parse(allocator, case.query))[0];
+        const atom = (try pattern.parse(&arena, case.query))[0];
         const haystack = try unicode.decode(std.testing.allocator, case.haystack, &text_buffer);
         try std.testing.expectEqual(@as(?u16, case.expected), try score(std.testing.allocator, &workspace, haystack, atom));
     }
@@ -417,7 +416,7 @@ test "matrix-cell boundary switches from optimal to greedy scores" {
     defer arena.deinit();
     var query: [128]u8 = @splat('a');
     query[127] = 'b';
-    const atom = (try pattern.parse(arena.allocator(), &query))[0];
+    const atom = (try pattern.parse(&arena, &query))[0];
     var workspace: Workspace = .{};
     defer workspace.deinit(allocator);
     var text_buffer: std.ArrayList(u21) = .empty;
@@ -439,7 +438,7 @@ test "slab byte budget preserves ASCII and Unicode fallback differences" {
     const allocator = std.testing.allocator;
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const atom = (try pattern.parse(arena.allocator(), "ab"))[0];
+    const atom = (try pattern.parse(&arena, "ab"))[0];
     var workspace: Workspace = .{};
     defer workspace.deinit(allocator);
     var text_buffer: std.ArrayList(u21) = .empty;

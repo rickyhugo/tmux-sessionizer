@@ -24,7 +24,7 @@ const Match = struct {
 pub fn rank(allocator: std.mem.Allocator, query: []const u8, candidates: []const []const u8) ![]usize {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const atoms = try pattern.parse(arena.allocator(), query);
+    const atoms = try pattern.parse(&arena, query);
     if (atoms.len == 0) {
         const result = try allocator.alloc(usize, candidates.len);
         for (result, 0..) |*index, i| index.* = i;

@@ -77,8 +77,8 @@ fn atom(allocator: std.mem.Allocator, raw: []const u8) !Atom {
     };
 }
 
-// All allocations belong to the caller's query arena.
-pub fn parse(allocator: std.mem.Allocator, query: []const u8) ![]const Atom {
+pub fn parse(arena: *std.heap.ArenaAllocator, query: []const u8) ![]const Atom {
+    const allocator = arena.allocator();
     var atoms: std.ArrayList(Atom) = .empty;
     var start: usize = 0;
     var saw_backslash = false;

@@ -11,13 +11,7 @@ pub fn main(init: std.process.Init) !void {
         std.process.exit(2);
     }
     const items: []const []const u8 = args[3..];
-    const ranked = matcher.rank(a, args[2], items) catch |err| {
-        if (err == error.NotImplemented) {
-            try std.Io.File.stderr().writeStreamingAll(init.io, "tms-oracle: NotImplemented (matcher port pending)\n");
-            std.process.exit(1);
-        }
-        return err;
-    };
+    const ranked = try matcher.rank(a, args[2], items);
     var buffer: [4096]u8 = undefined;
     var stdout = std.Io.File.stdout().writer(init.io, &buffer);
     try writeRanked(&stdout.interface, items, ranked);
