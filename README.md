@@ -187,20 +187,79 @@ Available actions are:
 
 ## Installation
 
-[![Packaging status](https://repology.org/badge/vertical-allrepos/tmux-sessionizer.svg)](https://repology.org/project/tmux-sessionizer/versions)
+Install tmux and Git before running `tms`. Install jj if you enable its repository
+provider. The picker is part of `tms`. It does not require fzf or a runtime helper.
 
-### Pre-built binaries
+### Release archives
 
-Check the [releases page](https://github.com/jrmoulton/tmux-sessionizer/releases) for the latest
-pre-built binaries
+Use the [fork's releases page](https://github.com/rickyhugo/tmux-sessionizer/releases)
+to select a published Zig release. This preparation does not establish that a Zig
+release exists. If no release has the archives below, build from source.
 
-### Cargo
+Archives cover Apple Silicon and Intel macOS, plus x86-64 Linux with GNU libc or
+musl. Each archive has a matching `.sha256` file. Download both files for the same
+version and target. Verify the checksum before extraction.
 
-Install with `cargo install tmux-sessionizer` or
+On Linux, run `sha256sum -c ARCHIVE.tar.gz.sha256`. On macOS, run
+`shasum -a 256 -c ARCHIVE.tar.gz.sha256`. Replace `ARCHIVE` with the downloaded
+archive name.
+
+Extract the archive, then install its `tms` executable in a directory on `PATH`.
+Keep its license and notices. See [packaging details](docs/packaging.md) for the
+target names and archive contents.
+
+### Existing Cargo installations
+
+`cargo install tmux-sessionizer` installs the Rust crate, not this Zig fork.
+Replace that executable with a release archive or a source build. Check
+`command -v tms` after installation. An older `$HOME/.cargo/bin/tms` can hide the
+new executable if that directory comes first on `PATH`.
 
 ### From source
 
-Clone the repository and install using `cargo install --path . --force`
+Install [mise](https://mise.jdx.dev/getting-started.html), then run:
+
+```sh
+git clone https://github.com/rickyhugo/tmux-sessionizer.git
+cd tmux-sessionizer
+mise trust
+mise install --locked
+mise run install
+```
+
+The default prefix is `$HOME/.local`. Add `$HOME/.local/bin` to `PATH`.
+Use `mise run install -- /another/prefix` to change the prefix. The source build
+uses Zig 0.17.1 and does not require Cargo after the Rust reference is retired.
+During the migration, mise still installs Rust for the compatibility reference.
+
+### Nix
+
+`nix build .` builds the default package from a checkout.
+`nix build .#tmux-sessionizer` selects the same package by name.
+The flake also exports `overlays.default`.
+
+## Development
+
+Run `mise install --locked` after changing the checkout. All development commands
+use mise tasks:
+
+```sh
+mise run build
+mise run test
+mise run fmt
+mise run ci
+```
+
+Run `mise run hooks:setup` from a standalone clone to install the shared hk hooks.
+CI calls `mise run ci`, which validates hk and runs the same checks with
+`hk check --all`. The integration must include the command, ranking, and terminal
+compatibility checks before the Zig switch. A passing foundation build does not
+prove compatibility.
+
+`nix develop` provides mise, not a separate development toolchain. Run the same
+mise commands inside that shell. The Nix package build uses its own hash-pinned
+Zig 0.17.1 compiler without network installs inside the build sandbox.
+See [packaging details](docs/packaging.md) for release tasks and outstanding gates.
 
 ## Usage Notes
 

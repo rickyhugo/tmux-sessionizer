@@ -1,14 +1,44 @@
-on: [push, pull_request]
-
 name: Nix
 
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-    - name: Install nix
-      uses: cachix/install-nix-action@v30
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_call:
 
-    - uses: actions/checkout@v4
-    - name: Build and check (clippy, format, tests)
-      run: nix flake check -L
+permissions:
+  contents: read
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            system: x86_64-linux
+          - runner: ubuntu-24.04-arm
+            system: aarch64-linux
+          - runner: macos-15-intel
+            system: x86_64-darwin
+          - runner: macos-15
+            system: aarch64-darwin
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: cachix/install-nix-action@v30
+        with:
+          enable_kvm: false
+          extra_nix_config: sandbox = true
+      - uses: jdx/mise-action@v5
+        with:
+          version: "2026.10.17"
+          install: false
+          cache: false
+      - run: mise install --locked
+      - name: Check and build native Nix package
+        env:
+          NIX_SYSTEM: ${{ matrix.system }}
+        run: mise run nix:check
