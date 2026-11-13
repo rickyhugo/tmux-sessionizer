@@ -1,0 +1,8 @@
+.{
+    .name = .tms,
+    .fingerprint = 0xb5e62cf2cb6e8871,
+    .version = "0.6.1",
+    .minimum_zig_version = "0.17.1",
+    .dependencies = .{},
+    .paths = .{ "build.zig", "build.zig.zon", "src", "LICENSE" },
+}
