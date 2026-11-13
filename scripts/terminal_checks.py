@@ -25,8 +25,6 @@ import uuid
 
 
 class Screen:
-    """The VT subset emitted by ratatui and tmux, with cell-width tracking."""
-
     def __init__(self, rows=24, cols=100):
         self.rows, self.cols = rows, cols
         self.x = self.y = 0
@@ -255,8 +253,10 @@ sys.exit(code if code >= 0 else 128 - code)
         return bool(data)
 
     def snapshot(self, label):
-        while self.read():
-            pass
+        deadline = time.monotonic() + 0.05
+        for _ in range(4):
+            if time.monotonic() >= deadline or not self.read():
+                break
         event = {
             "at_ms": round((time.perf_counter() - self.started) * 1000, 3),
             "label": label,
@@ -346,7 +346,20 @@ class Fixture:
         self.socket = "tms-check-" + uuid.uuid4().hex
         tools = self.root / "bin"
         tools.mkdir()
-        for name in ("tmux", "git", "ls", "sh"):
+        self.real_tmux = shutil.which("tmux")
+        if self.real_tmux is None:
+            raise RuntimeError("required tool not found: tmux")
+        launcher = tools / "tmux"
+        launcher_source = Path(__file__).parents[1] / "tests" / "terminal"
+        launcher.write_text(
+            f"#!{sys.executable}\n"
+            "import sys\n"
+            f"sys.path.insert(0, {str(launcher_source)!r})\n"
+            "from tmux_launcher import main\n"
+            f"raise SystemExit(main({self.real_tmux!r}, {self.socket!r}))\n"
+        )
+        launcher.chmod(0o755)
+        for name in ("git", "ls", "sh"):
             executable = shutil.which(name)
             if executable is None:
                 raise RuntimeError(f"required tool not found: {name}")
@@ -411,7 +424,7 @@ class Fixture:
 
     def tmux(self, *args, check=True):
         return subprocess.run(
-            ["tmux", "-L", self.socket, "-f", os.devnull, *args],
+            [self.real_tmux, "-L", self.socket, "-f", os.devnull, *args],
             env=self.env,
             cwd=self.home,
             capture_output=True,
@@ -430,17 +443,23 @@ class Fixture:
 
 def artifact(binary):
     binary = Path(binary).resolve()
-    return {
-        "path": str(binary),
-        "sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
-        "version": subprocess.run(
-            [str(binary), "--version"],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=5,
-        ).stdout.strip(),
-    }
+    fixture = Fixture()
+    try:
+        return {
+            "path": str(binary),
+            "sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
+            "version": subprocess.run(
+                [str(binary), "--version"],
+                env=fixture.env,
+                cwd=fixture.home,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            ).stdout.strip(),
+        }
+    finally:
+        fixture.close()
 
 
 def ready(screen, total=5):
@@ -567,7 +586,6 @@ def run_pty_checks(binary, output, strict):
         t.wait(ready, "picker ready")
         t.snapshot("before resize")
         t.resize(12, 42)
-        t.send(b"\x1b[D", "redraw after resize")
         t.wait(
             lambda s: ready(s) and "".join(s.cells[-1]).startswith("> "),
             "resized picker",
@@ -691,7 +709,7 @@ def run_popup_checks(binary, output):
         )
         client = Terminal(
             [
-                "tmux",
+                fixture.real_tmux,
                 "-L",
                 fixture.socket,
                 "-f",
@@ -734,12 +752,13 @@ def run_popup_checks(binary, output):
                     "XDG_CONFIG_HOME",
                     "TMS_CONFIG_FILE",
                     "TMS_TMUX_SOCKET",
+                    "PATH",
                 )
             )
             command += " TERM_PROGRAM=tmux " + shlex.join([str(binary), *args])
             job = subprocess.Popen(
                 [
-                    "tmux",
+                    fixture.real_tmux,
                     "-L",
                     fixture.socket,
                     "-f",

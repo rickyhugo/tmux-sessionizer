@@ -55,12 +55,20 @@ Unrelated setup or readiness failures always remain failures.
 `scripts/terminal_checks.py` launches the executable with a controlling PTY.
 It reads the current screen before an action, sends the action, and reads again until an assertion becomes true.
 Deadlines use PTY readiness and process state, not fixed sleeps.
+Each snapshot drains at most four 64 KiB reads and checks a 50 ms deadline between reads.
+Continuous output cannot prevent the surrounding wait or exit deadline from running.
 The driver compares semantic screen content rather than complete byte-identical frames.
 
 Each fixture has a fresh HOME, configuration file, Git repositories, and tmux socket name.
 The fixture PATH contains only `tmux`, `git`, `ls`, and `sh`.
 No fzf executable is available.
 Every tmux invocation uses the fixture's `-L tms-check-...` socket and `/dev/null` configuration.
+Candidate calls pass through an exec launcher that accepts only `-L FIXTURE_SOCKET` before the command.
+Missing, joined, repeated, or additional global options fail before tmux starts.
+The launcher injects the private socket and configuration, then replaces itself with real tmux.
+It does not simulate attach or switch commands.
+Driver setup and observations use the real tmux executable directly.
+Artifact metadata runs `--version` inside a fixture too.
 Popup checks attach a real client through another controlling PTY before opening `display-popup -E`.
 No check addresses the user's default tmux server.
 Fixture directories and private servers are removed at the end.
@@ -68,7 +76,17 @@ Fixture directories and private servers are removed at the end.
 JSON transcripts include before-action screens, input bytes, fresh screens, cursor positions, observed terminal modes, and chosen tmux state.
 The `.vt` files retain the original terminal output.
 The VT reader tracks Unicode display cells, cursor visibility, alternate-screen mode, and bold styling.
-Seven driver tests cover split UTF-8, split control sequences, erasure, color attributes, terminal queries, bounds, rejection of an exit-only process, and cleanup of an attached tmux client.
+The driver suite has 14 tests.
+They cover split UTF-8, split control sequences, erasure, color attributes, terminal queries, bounds, rejection of an exit-only process, and cleanup of an attached tmux client.
+Fake-executable tests reject unsafe launcher arguments without calling real tmux.
+They also verify that valid attach and switch calls exec the target with private options.
+A continuous writer on a real PTY tests timeout failure and cleanup.
+Benchmark regressions reject wrong counts even when the selected row is correct.
+
+A follow-up run with these checks kept 14 passes and the same three baseline defects.
+Full strict mode failed exactly those three checks.
+The follow-up resize check observes the new layout before sending any key.
+The retained baseline files and archive remain unchanged.
 
 On Darwin, a session leader's exit revokes its controlling tty.
 A supervisor records termios after the target exits but before that revocation.
@@ -86,6 +104,9 @@ The [benchmark results](../tests/terminal/rust-baseline/benchmark-results.json) 
 Each sample discovers 1,000 real empty Git repositories.
 It waits for all 1,000 candidates, writes one complete unique query, and waits for the selected result.
 The selected-result assertion excludes the input prompt.
+New samples parse the complete counter row as integers and require exact matched and candidate counts.
+They record the observed startup and search counts in `observed_counts`.
+The retained timing evidence predates this validation change.
 No extra key is sent to wake a stalled matcher.
 Every sample validates cancellation and terminal restoration.
 All seven samples completed the work with zero failures.

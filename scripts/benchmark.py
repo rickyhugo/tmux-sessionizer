@@ -6,12 +6,18 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import statistics
 import subprocess
 import sys
 import time
 
 from terminal_checks import Fixture, artifact
+
+
+def picker_counts(text):
+    matches = re.findall(r"(?m)^ *([0-9]+)/([0-9]+)─* *$", text)
+    return tuple(map(int, matches[0])) if len(matches) == 1 else None
 
 
 def sample(binary, fixture, count, output, label):
@@ -30,14 +36,18 @@ def sample(binary, fixture, count, output, label):
     )
     terminal = fixture.terminal(binary, rows=30, cols=100)
     try:
-        terminal.wait(lambda s: f"{count}/{count}" in s.text, "all candidates rendered")
+        terminal.wait(
+            lambda s: picker_counts(s.text) == (count, count),
+            "all candidates rendered",
+        )
+        startup_counts = picker_counts(terminal.screen.text)
         startup_ms = (time.perf_counter() - terminal.started) * 1000
         query = f"project-{count - 1:04d}"
         start = time.perf_counter()
         terminal.send(query.encode(), "search unique project")
         terminal.wait(
             lambda s: (
-                f"1/{count}" in s.text
+                picker_counts(s.text) == (1, count)
                 and any(
                     line.strip() == f"> {query}" for line in s.text.splitlines()[:-1]
                 )
@@ -46,6 +56,7 @@ def sample(binary, fixture, count, output, label):
             timeout=3,
         )
         search_ms = (time.perf_counter() - start) * 1000
+        search_counts = picker_counts(terminal.screen.text)
         picker_to_search_ms = (time.perf_counter() - terminal.started) * 1000
         terminal.send(b"\x03", "cancel measured picker")
         terminal.exit()
@@ -55,8 +66,18 @@ def sample(binary, fixture, count, output, label):
             "picker_startup_ms": startup_ms,
             "search_ms": search_ms,
             "picker_to_search_ms": picker_to_search_ms,
-            "candidates": count,
-            "matched": 1,
+            "candidates": search_counts[1],
+            "matched": search_counts[0],
+            "observed_counts": {
+                "startup": {
+                    "matched": startup_counts[0],
+                    "candidates": startup_counts[1],
+                },
+                "search": {
+                    "matched": search_counts[0],
+                    "candidates": search_counts[1],
+                },
+            },
             "errors": 0,
         }
     finally:
