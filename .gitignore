@@ -3,3 +3,5 @@
 .direnv
 /.zig-cache/
 /zig-out/
+/.audit/
+__pycache__/

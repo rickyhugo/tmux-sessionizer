@@ -66,7 +66,7 @@ Use Git and jj subprocesses for repository operations. Preserve the reference's 
 
 ## Deliberate terminal improvements
 
-Restore terminal state on supported termination signals. Handle tiny sizes without arithmetic underflow. Ensure completed matching can render without an extra keypress. These address cleanup, resize, and responsiveness requirements in the requested plan.
+Restore terminal state on supported termination signals. Handle tiny sizes without arithmetic underflow. Position the query cursor by display cells while retaining scalar-based editing. Ensure completed matching can render without an extra keypress. These address Unicode, cleanup, resize, and responsiveness requirements in the requested plan.
 
 Keep remaining behavior differences visible in the compatibility report. Do not silently replace lexical timestamps, configuration coercions, name normalization, or query grammar with simpler rules.
 

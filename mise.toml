@@ -21,6 +21,15 @@ run = "zig build -Doptimize=ReleaseFast"
 description = "Run Zig tests"
 run = "zig build test"
 
+[tasks."test:adapters"]
+description = "Verify tmux arguments, command policies, and a private tmux lifecycle"
+run = "python3 src/app/check.py --real-tmux"
+
+[tasks."test:matcher:diff"]
+description = "Compare Zig ranking with the Rust oracle"
+depends = ["build", "build:rust-oracle"]
+run = "python3 src/matcher/check-parity.py --oracle zig-out/bin/tms-oracle --rust-oracle target/debug/examples/compat_oracle"
+
 [tasks."build:rust"]
 description = "Build the Rust reference executable"
 run = "cargo build --locked"
@@ -35,7 +44,10 @@ run = "cargo build --locked --example compat_oracle"
 
 [tasks."test:harness"]
 description = "Check compatibility test isolation"
-run = "python3 -m unittest discover -s tests/compat -p 'test_*.py'"
+run = [
+  "python3 -m unittest discover -s tests/compat -p 'test_*.py'",
+  "python3 -m unittest discover -s tests/terminal -p 'test_*.py'",
+]
 
 [tasks."test:compat:rust"]
 description = "Replay command and ranking fixtures against Rust"
@@ -56,6 +68,11 @@ run = "python3 scripts/compat_terminal.py"
 description = "Exercise the Zig picker in isolated tmux terminals"
 depends = ["build"]
 run = "python3 scripts/compat_terminal.py --bin zig-out/bin/tms"
+
+[tasks."test:terminal:strict"]
+description = "Verify Zig PTY and popup behavior with Unicode and cleanup fixes"
+depends = ["test:harness", "build:release"]
+run = "python3 scripts/terminal_checks.py --binary zig-out/bin/tms --require-improvements --output .audit/terminal"
 
 [tasks.fmt]
 description = "Format Zig and Rust files through hk"
