@@ -43,6 +43,36 @@ test "window active and attached fields remain distinct" {
     try expectArgs(0, &.{ "list-windows", "-F", "'#{window_id},#{window_name},#{window_active},#{window_attached}'", "-t", "project" });
 }
 
+test "comma session names preserve identity and timestamp fields" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    fake.reset(a, &.{
+        .{ .stdout = "'a,b,0,009'\n'current,1,10'\n" },
+        .{ .stdout = "'current'\n" },
+        .{ .stdout = "'/work/current'\n" },
+    });
+    const snapshot = try client.snapshot(std.testing.io, a);
+    try std.testing.expectEqualStrings("a,b", snapshot.sessions[0].name);
+    try std.testing.expectEqualStrings("009", snapshot.sessions[0].last_attached);
+    try std.testing.expect(!snapshot.sessions[0].attached);
+    try expectArgs(0, &.{ "list-sessions", "-F", "'#{session_name},#{session_attached},#{session_last_attached}'" });
+}
+
+test "comma window names do not turn an active window into a filtered attached window" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    fake.reset(a, &.{.{ .stdout = "'@4,topic,ui,1,'\n'@9,other,ui,0,1'\n" }});
+    const windows = try client.windows(std.testing.io, a, "a,b");
+    try std.testing.expectEqualStrings("@4", windows[0].id);
+    try std.testing.expectEqualStrings("topic,ui", windows[0].name);
+    try std.testing.expect(windows[0].active);
+    try std.testing.expect(!windows[0].attached);
+    try std.testing.expect(windows[1].attached);
+    try expectArgs(0, &.{ "list-windows", "-F", "'#{window_id},#{window_name},#{window_active},#{window_attached}'", "-t", "a,b" });
+}
+
 test "inside switch captures attach fallback before final replacement" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();

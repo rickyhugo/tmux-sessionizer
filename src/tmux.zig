@@ -42,10 +42,10 @@ pub const Client = struct {
         var list: std.ArrayList(SessionInfo) = .empty;
         var lines = std.mem.tokenizeScalar(u8, output.stdout, '\n');
         while (lines.next()) |line| {
-            var fields = std.mem.splitScalar(u8, try clean(a, line), ',');
-            const name = fields.next() orelse continue;
+            var fields = std.mem.splitBackwardsScalar(u8, try clean(a, line), ',');
+            const timestamp = fields.next() orelse continue;
             const attached = fields.next() orelse continue;
-            const timestamp = fields.next() orelse "";
+            const name = fields.rest();
             try list.append(a, .{ .name = name, .attached = !std.mem.eql(u8, attached, "0"), .last_attached = timestamp });
         }
         const name = try clean(a, (try self.execute(io, a, &.{ "display-message", "-p", "'#S'" })).stdout);
@@ -61,11 +61,13 @@ pub const Client = struct {
         var result: std.ArrayList(Window) = .empty;
         var lines = std.mem.tokenizeScalar(u8, output.stdout, '\n');
         while (lines.next()) |line| {
-            var fields = std.mem.splitScalar(u8, try clean(a, line), ',');
-            const id = fields.next() orelse continue;
-            const name = fields.next() orelse continue;
-            const active = fields.next() orelse "0";
-            const attached = fields.next() orelse "0";
+            var fields = std.mem.splitBackwardsScalar(u8, try clean(a, line), ',');
+            const attached = fields.next() orelse continue;
+            const active = fields.next() orelse continue;
+            const prefix = fields.rest();
+            const separator = std.mem.indexOfScalar(u8, prefix, ',') orelse continue;
+            const id = prefix[0..separator];
+            const name = prefix[separator + 1 ..];
             try result.append(a, .{ .id = id, .name = name, .active = std.mem.eql(u8, active, "1"), .attached = std.mem.eql(u8, attached, "1") });
         }
         return result.toOwnedSlice(a);

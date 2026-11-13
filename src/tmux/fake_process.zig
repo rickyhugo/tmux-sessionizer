@@ -11,7 +11,7 @@ pub const Output = struct {
     stdout: []const u8 = "",
     stderr: []const u8 = "",
 };
-pub const Call = struct { kind: enum { capture, inherit, replace }, request: Request };
+pub const Call = struct { kind: enum { capture, inherit, replace, move }, request: Request };
 pub var calls: std.ArrayList(Call) = .empty;
 pub var outputs: []const Output = &.{};
 pub var allocator: std.mem.Allocator = undefined;
@@ -35,6 +35,7 @@ pub fn replace(_: std.Io, request: Request) !noreturn {
     try calls.append(allocator, .{ .kind = .replace, .request = request });
     return error.Replaced;
 }
-pub fn movePath(_: std.Io, _: std.mem.Allocator, _: []const u8, _: []const u8) !void {
+pub fn movePath(_: std.Io, _: std.mem.Allocator, from: []const u8, to: []const u8) !void {
+    try calls.append(allocator, .{ .kind = .move, .request = .{ .argv = try allocator.dupe([]const u8, &.{ from, to }) } });
     return error.MoveFailed;
 }

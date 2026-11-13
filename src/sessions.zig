@@ -80,7 +80,6 @@ fn componentFromEnd(p: []const u8, depth: usize) ?[]const u8 {
         n += 1;
         end = start;
     }
-    // Rust's Path iterator includes the root component.
     if (n == depth and std.fs.path.isAbsolute(p)) return "/";
     return null;
 }
@@ -133,6 +132,9 @@ fn deduplicate(a: A, entries: []Session) !void {
             depth = @max(depth, current_depth);
         }
         for (group.items) |j| entries[j].name = try suffix(a, sourcePath(entries[j]), depth + 1);
+        for (0..group.items.len / 2) |j| {
+            std.mem.swap(Session, &entries[group.items[j]], &entries[group.items[group.items.len - 1 - j]]);
+        }
     }
 }
 
@@ -246,9 +248,9 @@ test "duplicate groups share ancestor depth, not shortest unique suffix" {
         .{ .key = "test", .name = "test", .source = .{ .bookmark = "/other/path/to/projects/proj2/test" } },
     };
     try deduplicate(a, &entries);
-    try std.testing.expectEqualStrings("to/proj1/test", entries[0].name);
+    try std.testing.expectEqualStrings("projects/proj2/test", entries[0].name);
     try std.testing.expectEqualStrings("to/proj2/test", entries[1].name);
-    try std.testing.expectEqualStrings("projects/proj2/test", entries[2].name);
+    try std.testing.expectEqualStrings("to/proj1/test", entries[2].name);
 }
 
 test "ancestor components include exactly one root and identical paths retain Rust root joining" {

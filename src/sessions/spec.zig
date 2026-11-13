@@ -53,3 +53,19 @@ test "configured creation script is keyed by normalized session name" {
     try sessions.open(std.testing.io, a, entry, &client, &cfg);
     try expectArgs(4, &.{ "send-keys", "-t", "project_one:{start}.{top}", script, "Enter" });
 }
+
+test "opening an existing comma session does not recreate it or rerun its script" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var directory = std.testing.tmpDir(.{});
+    defer directory.cleanup();
+    try directory.dir.writeFile(std.testing.io, .{ .sub_path = ".tms-create", .data = "echo should-not-run" });
+    const path = try directory.dir.realPathFileAlloc(std.testing.io, ".", a);
+    const entry: sessions.Session = .{ .key = "a,b", .name = "a,b", .source = .{ .bookmark = path } };
+    const cfg: config.Config = .{};
+    fake.reset(a, &.{.{ .stdout = "'a,b,0,'\n" }});
+    try sessions.open(std.testing.io, a, entry, &client, &cfg);
+    try std.testing.expectEqual(@as(usize, 4), fake.calls.items.len);
+    try expectArgs(3, &.{ "switch-client", "-t", "a,b" });
+}

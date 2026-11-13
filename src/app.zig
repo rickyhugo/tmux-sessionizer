@@ -105,7 +105,6 @@ const App = struct {
                 .preview = .{ .pane = .{ .client = &self.client, .target = window.id } },
             });
         }
-        // Rust injects an empty row when list-windows returns no visible windows.
         if (items.items.len == 0) try items.append(self.a, .{ .id = windows_list.len, .label = "" });
         if (try self.choose(items.items)) |index| {
             if (index < windows_list.len) _ = try self.client.selectWindow(self.io, self.a, windows_list[index].id);
@@ -141,7 +140,6 @@ const App = struct {
         const panes = try self.client.panes(self.io, self.a);
         if (panes.len == 0) return error.NoCurrentPane;
         const destination = try std.mem.replaceOwned(u8, self.a, panes[0].cwd, current, name);
-        // Rust ignores mv's nonzero status and continues with cd and rename.
         process.movePath(self.io, self.a, panes[0].cwd, destination) catch {};
         for (panes) |pane| {
             const pane_path = try std.mem.replaceOwned(u8, self.a, pane.cwd, current, name);
@@ -282,7 +280,6 @@ fn sessionListing(a: A, snapshot: tmux.Snapshot) ![]const u8 {
         try text.append(a, ' ');
     }
     if (snapshot.sessions.len == 0 and current.len == 0) try text.append(a, '*');
-    // split('\n') contributes an empty final element to Rust's output.
     try text.appendSlice(a, " \n");
     return text.toOwnedSlice(a);
 }
@@ -480,8 +477,14 @@ test "fixture rename ignores failed move, replaces every path occurrence, sends 
         .{ .stdout = "'1.0,sleep,/work/old/old'\n'2.0,vim,/work/old/old/sub'\n" },
     });
     try std.testing.expectError(error.Replaced, fixtureApp(a, &cfg, &env).rename("new"));
-    try expectCall(4, &.{ "send-keys", "-t", "1.0", "cd /work/new/new", "Enter" });
-    try expectCall(5, &.{ "send-keys", "-t", "2.0", "cd /work/new/new/sub", "Enter" });
-    try expectCall(6, &.{ "rename-session", "new" });
-    try expectCall(7, &.{ "attach-session", "-c", "/work/new/new" });
+    try std.testing.expectEqual(.move, process.calls.items[4].kind);
+    const moved = process.calls.items[4].request.argv;
+    try std.testing.expectEqual(@as(usize, 2), moved.len);
+    try std.testing.expectEqualStrings("/work/old/old", moved[0]);
+    try std.testing.expectEqualStrings("/work/new/new", moved[1]);
+    try expectCall(5, &.{ "send-keys", "-t", "1.0", "cd /work/new/new", "Enter" });
+    try expectCall(6, &.{ "send-keys", "-t", "2.0", "cd /work/new/new/sub", "Enter" });
+    try expectCall(7, &.{ "rename-session", "new" });
+    try expectCall(8, &.{ "attach-session", "-c", "/work/new/new" });
+    try std.testing.expectEqual(@as(usize, 9), process.calls.items.len);
 }
