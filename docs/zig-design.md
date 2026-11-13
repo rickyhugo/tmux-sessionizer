@@ -54,7 +54,11 @@ One terminal owner restores saved attributes and screen state before returning o
 
 ## Dependencies
 
-Use a reviewed, pinned TOML parser compiled into the executable. Both candidates proposed tomlc99. Configuration coercion and serialization remain Zig-owned.
+Use a pinned TOML parser compiled into the executable. Both candidates proposed tomlc99, but its upstream README now marks it obsolete. Use the native tomlc17 API at commit `aa4ca1bc5fe6382ac631a8d1428077a9a084a64d`, with its MIT license.
+
+Configuration coercion, merge, and serialization remain Zig-owned. Do not use tomlc17's merge operation because it appends arrays of tables. The Rust reference replaces arrays.
+
+Sources are the pinned [tomlc99 notice](https://github.com/cktan/tomlc99/blob/62ce93ceb713dc49909d0fef1411f9d37bef83f2/README.md) and [tomlc17 header](https://github.com/cktan/tomlc17/blob/aa4ca1bc5fe6382ac631a8d1428077a9a084a64d/src/tomlc17.h). Parser compatibility remains a test gate.
 
 Port the locked Nucleo matcher semantics to Zig. Preserve upstream notices for translated files and tables. Record dependency versions and licenses. Use native directory enumeration and file movement instead of adding `ls` and `mv` runtime requirements. Verify their observable behavior, including overwrite and cross-device moves.
 

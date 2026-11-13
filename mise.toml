@@ -33,14 +33,18 @@ run = "cargo test --locked"
 description = "Build the Rust ranking reference"
 run = "cargo build --locked --example compat_oracle"
 
+[tasks."test:harness"]
+description = "Check compatibility test isolation"
+run = "python3 -m unittest discover -s tests/compat -p 'test_*.py'"
+
 [tasks."test:compat:rust"]
 description = "Replay command and ranking fixtures against Rust"
-depends = ["build:rust", "build:rust-oracle"]
+depends = ["test:harness", "build:rust", "build:rust-oracle"]
 run = "python3 scripts/compat.py --jj --oracle target/debug/examples/compat_oracle"
 
 [tasks."test:compat"]
 description = "Compare Zig commands and ranking with the Rust fixtures"
-depends = ["build"]
+depends = ["test:harness", "build"]
 run = "python3 scripts/compat.py --jj --bin zig-out/bin/tms --oracle zig-out/bin/tms-oracle"
 
 [tasks."test:terminal:rust"]

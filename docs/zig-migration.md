@@ -45,7 +45,7 @@ Each unit ends with an executable check before its dependent unit begins.
 
 ## Throughput checkpoint
 
-- [ ] **Blocking first steps.** Rust fixtures pass independently. Compile the shared Zig contracts before the behavior workstreams start.
+- [x] **Blocking first steps.** Rust fixtures pass independently. The shared Zig contracts compile and pass `mise run test` on the integration branch.
 - [x] **Independent workstreams.** Separate baseline compatibility tests, terminal verification, tooling, and build contracts. Split behavior implementation into configuration, repositories, matching, picker, and command integration after contracts compile.
 - [x] **Shared mutable state.** Give each writer a separate worktree. The coordinator integrates verified commits serially.
 - [x] **Smallest safe decomposition.** Keep integration under the coordinator. Workers cannot delegate further because the harness limits subagent depth.
@@ -74,6 +74,8 @@ The environment has Zig 0.17.1, hk 2.12.0, and jj 0.38.0 installed through mise.
 - `mise run ci` passed hk validation, formatting, and all 16 existing Rust tests after tooling integration.
 - `mise run test:compat:rust` passed 42 command cases and 25 ranking vectors on the integration branch.
 - `mise run test:terminal:rust` passed seven real tmux terminal scenarios on the integration branch.
+- The integrated Zig foundation passes `mise run test`. Its domain stubs still return `NotImplemented`.
+- Six isolation tests prove the tmux shim rejects unsupported global options before launching a process. Four targeted Rust cases still pass with the corrected shim.
 
 These prove the reference and its harness. They do not establish Zig compatibility.
 

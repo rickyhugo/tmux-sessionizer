@@ -7,6 +7,9 @@ steps {
     glob = List("hk.pkl", "mise.toml", "mise.lock")
     check = "hk validate --deny-warnings"
   }
+  ["compat-harness"] {
+    check = "mise run test:harness"
+  }
   ["zig-fmt"] {
     glob = "*.zig"
     check = "zig fmt --check {{files}}"
