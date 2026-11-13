@@ -156,10 +156,10 @@ fn valueCandidates(a: A, items: *std.ArrayList(Candidate), o: spec.Option, prefi
 }
 
 fn optionCandidates(a: A, items: *std.ArrayList(Candidate), id: spec.Id, prefix: []const u8) !void {
-    if (std.mem.indexOfScalar(u8, prefix, '=')) |equal| {
+    if (std.mem.startsWith(u8, prefix, "--")) if (std.mem.indexOfScalar(u8, prefix, '=')) |equal| {
         if (option(id, prefix)) |o| try valueCandidates(a, items, o, prefix[equal + 1 ..], prefix[0 .. equal + 1]);
         return;
-    }
+    };
     var options: std.ArrayList(spec.Option) = .empty;
     try options.appendSlice(a, spec.get(id).options);
     try options.append(a, spec.help_option);
@@ -233,4 +233,22 @@ test "static completion order, values, prefixes, and multi-value arguments" {
     try std.testing.expectEqualStrings("--session-sort-order=LastAttached", inline_value[0].value);
     const multi = try candidates(std.testing.io, a, &.{ "tms", "config", "--paths", "code", "" }, 4, &env);
     try std.testing.expectEqualStrings("list", multi[0].value);
+}
+
+test "equals in short flag clusters preserves short-option completions" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const env: Env = .init(a);
+    const root = try candidates(std.testing.io, a, &.{ "tms", "-h=x" }, 1, &env);
+    try std.testing.expectEqual(@as(usize, 2), root.len);
+    try std.testing.expectEqualStrings("-h=xh", root[0].value);
+    try std.testing.expectEqualStrings("-h=xV", root[1].value);
+    const config_items = try candidates(std.testing.io, a, &.{ "tms", "config", "-h=x" }, 2, &env);
+    try std.testing.expectEqual(@as(usize, 4), config_items.len);
+    try std.testing.expectEqualStrings("-h=xp", config_items[0].value);
+    try std.testing.expectEqualStrings("-h=xh", config_items[3].value);
+    const marks = try candidates(std.testing.io, a, &.{ "tms", "marks", "-h=x" }, 2, &env);
+    try std.testing.expectEqual(@as(usize, 1), marks.len);
+    try std.testing.expectEqualStrings("-h=xh", marks[0].value);
 }

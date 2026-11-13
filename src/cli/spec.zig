@@ -47,6 +47,7 @@ pub const Spec = struct {
     suffix: []const u8 = "",
     positional: ?[]const u8 = null,
     positional_about: []const u8 = "",
+    positional_last: bool = false,
     required: bool = false,
     options: []const Option = &.{},
 };
@@ -91,7 +92,7 @@ pub const specs = [_]Spec{
         .{ .id = .name, .long = "name", .value = "NAME", .about = "Name of cloned repository directory, will be picked based on remote url if left empty" },
     } },
     .{ .id = .init_repo, .parent = .root, .name = "init-repo", .about = "Initialize empty repository", .suffix = " <REPOSITORY>", .positional = "REPOSITORY", .positional_about = "Name of the repository to initialize", .required = true },
-    .{ .id = .bookmark, .parent = .root, .name = "bookmark", .about = "Bookmark a directory so it is available to select along with the Git repositories", .suffix = " [OPTIONS] [PATH]", .positional = "PATH", .positional_about = "Path to bookmark, if left empty bookmark the current directory", .options = &.{.{ .id = .delete, .long = "delete", .short = 'd', .kind = .flag, .about = "Delete instead of add a bookmark" }} },
+    .{ .id = .bookmark, .parent = .root, .name = "bookmark", .about = "Bookmark a directory so it is available to select along with the Git repositories", .suffix = " [OPTIONS] [PATH]", .positional = "PATH", .positional_about = "Path to bookmark, if left empty bookmark the current directory", .positional_last = true, .options = &.{.{ .id = .delete, .long = "delete", .short = 'd', .kind = .flag, .about = "Delete instead of add a bookmark" }} },
     .{ .id = .open_session, .parent = .root, .name = "open-session", .about = "Open a session", .suffix = " <SESSION>", .positional = "SESSION", .positional_about = "Name of the session to open", .required = true },
     .{ .id = .marks, .parent = .root, .name = "marks", .about = "Manage list of sessions that can be instantly accessed by their index", .suffix = " [INDEX]", .positional = "INDEX", .positional_about = "The index of the mark to open" },
     .{ .id = .marks_list, .parent = .marks, .name = "list", .about = "List all marks" },
@@ -147,6 +148,21 @@ pub fn usage(a: std.mem.Allocator, id: Id) ![]const u8 {
 pub fn label(a: std.mem.Allocator, option: Option) ![]const u8 {
     return std.fmt.allocPrint(a, "--{s}{s}", .{ option.long, if (option.value) |v| try std.fmt.allocPrint(a, " <{s}>{s}", .{ v, if (option.many()) "..." else "" }) else "" });
 }
+pub fn positionalUsage(a: std.mem.Allocator, id: Id) ![]const u8 {
+    const s = get(id);
+    if (id == .marks_delete) return s.suffix;
+    return if (s.positional) |name| std.fmt.allocPrint(a, " {s}{s}{s}", .{ if (s.required) "<" else "[", name, if (s.required) ">" else "]" }) else "";
+}
+
+pub fn argumentGroup(a: std.mem.Allocator, id: Id) ![]const u8 {
+    const s = get(id);
+    var members: std.ArrayList([]const u8) = .empty;
+    if (!s.positional_last) if (s.positional) |name| try members.append(a, name);
+    for (s.options) |o| try members.append(a, try label(a, o));
+    if (s.positional_last) if (s.positional) |name| try members.append(a, name);
+    return std.fmt.allocPrint(a, "<{s}>", .{try std.mem.join(a, "|", members.items)});
+}
+
 pub fn values(kind: Kind) []const []const u8 {
     return switch (kind) {
         .boolean => &.{ "true", "false" },

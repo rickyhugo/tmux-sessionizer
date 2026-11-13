@@ -49,6 +49,42 @@ def missing_value(option):
     return f"error: a value is required for '{option}' but none was supplied\n{MORE}"
 
 
+def unexpected_value(command, option, value, usage=None):
+    usage = usage or f"{command} --{option}"
+    return (
+        f"error: unexpected value '{value}' for '--{option}' found; no more were expected\n\n"
+        f"Usage: {usage}\n{MORE}"
+    )
+
+
+def similar_argument(value, suggestion, usage):
+    return (
+        f"error: unexpected argument '--{value}' found\n\n"
+        f"  tip: a similar argument exists: '--{suggestion}'\n\n"
+        f"Usage: {usage}\n{MORE}"
+    )
+
+
+def invalid_boolean(value, suggestion=None):
+    hint = f"\n  tip: a similar value exists: '{suggestion}'\n" if suggestion else ""
+    return (
+        f"error: invalid value '{value}' for '--full-path <true | false>'\n"
+        f"  [possible values: true, false]\n{hint}{MORE}"
+    )
+
+
+CONFIG_GROUP = (
+    "<--paths <search paths>...|--session <default session>|--excluded <excluded dirs>...|"
+    "--remove <remove dir>...|--full-path <true | false>|--search-submodules <true | false>|"
+    "--recursive-submodules <true | false>|--switch-filter-unknown <true | false>|"
+    "--max-depths <max depth>...|--picker-highlight-color <#rrggbb>|"
+    "--picker-highlight-text-color <#rrggbb>|--picker-border-color <#rrggbb>|"
+    "--picker-info-color <#rrggbb>|--picker-prompt-color <#rrggbb>|"
+    "--session-sort-order <Alphabetical | LastAttached>|"
+    "--clone-repo-switch <Always | Never | Foreground>|--enable-list-worktrees <true | false>>"
+)
+
+
 CASES = [
     ([b"bookmark", b"invalid-\xff"], invalid_utf8("bookmark")),
     ([b"bookmark", b"--", b"invalid-\xff"], invalid_utf8("bookmark")),
@@ -91,7 +127,117 @@ CASES = [
         )
         for command in ("list", "unknown")
     ],
+    (["config", "--session", "--help=x"], unexpected_value("tms config", "help", "x")),
+    (["config", "--paths", "--help="], unexpected_value("tms config", "help", "")),
+    *[
+        (["config", "--session", token], missing_value("--session <default session>"))
+        for token in ("-hh", "-hx", "-h=x", "-ph", "--full-path=true")
+    ],
+    *[
+        (
+            ["config", "--session", "--", command],
+            usage_error(
+                "config",
+                f"the subcommand '{command}' cannot be used with one or more of the other specified arguments",
+            ),
+        )
+        for command in ("list", "unknown", "--help")
+    ],
+    (
+        ["config", "--full-path", "true", "--session", "--", "list"],
+        usage_error(
+            "config",
+            "the subcommand 'list' cannot be used with '--full-path <true | false>'",
+        ),
+    ),
+    *[
+        ([b"config", b"--full-path", value], invalid_boolean(display, suggestion))
+        for value, display, suggestion in (
+            (b"true\xff", "true�", "true"),
+            (b"false\xff", "false�", "false"),
+            (b"\xfftrue", "�true", "true"),
+            (b"TRUE", "TRUE", None),
+        )
+    ],
+    (
+        ["config", "--session", "--version"],
+        similar_argument(
+            "version", "session", "tms config --session <default session>"
+        ),
+    ),
+    (
+        ["config", "--full-path", "true", "--session", "--version"],
+        similar_argument(
+            "version",
+            "session",
+            "tms config --full-path <true | false> --session <default session>",
+        ),
+    ),
+    (
+        ["config", "--session", "--path=x"],
+        similar_argument("path", "paths", "tms config --paths <search paths>..."),
+    ),
+    *[
+        (
+            [*command, "--help=x"],
+            unexpected_value("", "help", "x", usage=usage),
+        )
+        for command, usage in (
+            (["marks", "set", "--path"], "tms marks set --help [INDEX]"),
+            (["clone-repo", "--name"], "tms clone-repo --help <REPOSITORY>"),
+            (["bookmark"], "tms bookmark --help [PATH]"),
+            (["marks", "delete"], "tms marks delete --help <INDEX|--all>"),
+            (
+                ["config", "--full-path", "true", "--session"],
+                f"tms config --help {CONFIG_GROUP}",
+            ),
+            (
+                ["config", "--session", "x", "--full-path", "true"],
+                f"tms config --help {CONFIG_GROUP}",
+            ),
+            (["config", "--session", "x"], "tms config --help"),
+        )
+    ],
+    (
+        ["marks", "delete", "--all=x"],
+        unexpected_value("", "all", "x", usage="tms marks delete <INDEX|--all>"),
+    ),
+    (
+        ["marks", "delete", "--al=x"],
+        similar_argument("al", "all", "tms marks delete <INDEX|--all>"),
+    ),
 ]
+
+SHORT_OPTIONS = [
+    ([], [("h", "Print help"), ("V", "Print version")]),
+    (
+        ["config"],
+        [
+            (
+                "p",
+                "The paths to search through. Shell like expansions such as '~' are supported",
+            ),
+            (
+                "s",
+                "The default session to switch to (if available) when killing another session",
+            ),
+            (
+                "d",
+                "The maximum depth to traverse when searching for repositories in search paths, length should match the number of search paths if specified (defaults to 10)",
+            ),
+            ("h", "Print help"),
+        ],
+    ),
+    (["marks"], [("h", "Print help")]),
+]
+
+
+def completion_output(shell, prefix, options):
+    if shell in ("bash", "elvish"):
+        return "\n".join(prefix + short for short, _ in options).encode()
+    separator = ":" if shell == "zsh" else "\t"
+    lines = [prefix + short + separator + about for short, about in options]
+    return ("\n".join(lines) + ("" if shell == "zsh" else "\n")).encode()
 
 
 def main():
@@ -140,7 +286,45 @@ def main():
                         f"FAIL {binary}: {case!r}\n"
                         f"  expected: {expected!r}\n  actual: {actual!r}"
                     )
+        completion_count = 0
+        for context, options in SHORT_OPTIONS:
+            for token in ("-h=x", "-h=", "-hx=y"):
+                words = ["tms", *context, token]
+                for shell in ("bash", "elvish", "fish", "powershell", "zsh"):
+                    completion_count += 1
+                    for binary in binaries:
+                        config.write_bytes(original)
+                        result = subprocess.run(
+                            [str(binary), "--", *words],
+                            cwd=d,
+                            env=env
+                            | {
+                                "COMPLETE": shell,
+                                "_CLAP_COMPLETE_INDEX": str(len(words) - 1),
+                            },
+                            capture_output=True,
+                            timeout=10,
+                        )
+                        actual = (
+                            result.returncode,
+                            result.stdout,
+                            result.stderr,
+                            config.read_bytes(),
+                        )
+                        expected = (
+                            0,
+                            completion_output(shell, token, options),
+                            b"",
+                            original,
+                        )
+                        if actual != expected:
+                            failures += 1
+                            print(
+                                f"FAIL {binary}: {shell} {words!r}\n"
+                                f"  expected: {expected!r}\n  actual: {actual!r}"
+                            )
     print(f"{len(CASES)} CLI diagnostic/preservation cases; {failures} failures")
+    print(f"{completion_count} short-option completion cases")
     return bool(failures)
 
 
