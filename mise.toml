@@ -56,7 +56,7 @@ run = "python3 scripts/compat.py --jj --oracle target/debug/examples/compat_orac
 
 [tasks."test:compat"]
 description = "Compare Zig commands and ranking with the Rust fixtures"
-depends = ["test:harness", "build"]
+depends = ["test:harness", "build:release"]
 run = "python3 scripts/compat.py --jj --bin zig-out/bin/tms --oracle zig-out/bin/tms-oracle"
 
 [tasks."test:terminal:rust"]

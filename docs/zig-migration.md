@@ -77,7 +77,7 @@ The environment has Zig 0.17.1, hk 2.12.0, and jj 0.38.0 installed through mise.
 - The integrated Zig modules, including configuration and CLI parsing, pass `mise run test`.
 - Six isolation tests prove the tmux shim rejects unsupported global options before launching a process. Four targeted Rust cases still pass with the corrected shim.
 - The process adapter passes 15 runtime tests, including metadata-preservation and failed-copy privacy checks. The actual cross-device test is skipped because no writable second filesystem is available.
-- Review found inherited-ACL and read-only staging cleanup gaps in the move fallback. Fixes are in progress.
+- Inherited-ACL and read-only staging cleanup fixes are integrated. Parent verification passes all 19 process tests across real APFS devices with ownership enabled. Independent review is in progress.
 - Command and tmux checks pass 23 tests and a real PTY comma-session regression. Independent review found no remaining issues in the comma-name and duplicate-precedence fixes.
 - Repository checks pass 30 tests after the metadata-provenance and exclusion-presence fixes. The non-UTF-8 filename fixture is skipped on macOS and still needs Linux.
 - The integrated Zig oracle matches all 25 stored ranking vectors and 3,989 independent Rust differential vectors.
@@ -91,6 +91,8 @@ The environment has Zig 0.17.1, hk 2.12.0, and jj 0.38.0 installed through mise.
 - The full optimized Zig application passes all 21 strict terminal and popup checks.
 - CLI differential checks pass 815 completion probes, five registration scripts, 42 help forms, 13 exports, and 23 persistence comparisons.
 - Full Zig replay passes 40 of 42 command cases and all 25 ranking cases. Invalid-TOML diagnostics and jj completion output still differ.
+- hk now requires release command/ranking compatibility followed by strict terminal compatibility. Local hooks and CI fail on the remaining command differences.
+- Seven alternating release samples per implementation validated all 1,000 candidates and the unique search result without errors. The timing verdict remains inconclusive because the limiter is unmeasured and startup variation is large. Raw results are in `tests/terminal/zig-integration/benchmark-results.json`.
 
 Review fixes remain open for blocked terminal output, malformed UTF-8 cancellation, doubled Escape, and consistent cursor width. Repository provenance fixes await independent review. Full compatibility remains gated on the two command differences.
 

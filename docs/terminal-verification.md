@@ -140,7 +140,7 @@ mise exec -- python scripts/terminal_checks.py --binary /Users/hugo.englund/pers
 ## Timing results
 
 The verdict is **INCONCLUSIVE**.
-There is no Zig comparison or measured application limiter.
+The original reference run has no Zig comparison or measured application limiter.
 These are observed end-to-end PTY latencies, not evidence of an implementation speedup.
 
 The [benchmark results](../tests/terminal/rust-baseline/benchmark-results.json) retain seven samples, their ranges, artifact hashes, work counts, and errors.
@@ -185,6 +185,30 @@ Failures appear in `errors` and cause a nonzero exit.
 
 ## Commands and retained evidence
 
+### Integrated Zig comparison
+
+The full optimized Zig application passed all 21 strict PTY and popup checks on
+macOS arm64. Its SHA-256 was
+`c0e17565e6f62a0aeab99ce1e78bc023e52d1b7cc1175be56b42e8ad0f664bd8`.
+The separate picker driver also passed suspend/resume and allocation-failure cleanup.
+Blocked-output and malformed-input review fixes remain open.
+
+The [integrated comparison](../tests/terminal/zig-integration/benchmark-results.json)
+records seven alternating release samples per implementation over 1,000 repositories.
+Every sample verified exact candidate counts, one selected result, and cleanup.
+There were no errors.
+
+| Observation | Rust median (range) | Zig median (range) |
+| --- | ---: | ---: |
+| Picker startup | 20.327 ms (17.862–122.723) | 18.454 ms (16.924–144.112) |
+| Query to selected result | 2.803 ms (2.708–6.265) | 1.805 ms (1.792–2.128) |
+
+The verdict remains **INCONCLUSIVE**. The limiter and observer overhead were not
+measured. Other migration work ran concurrently. Startup spread exceeds the median
+difference. These observations establish completed work, not a speedup.
+
+### Reference reproduction
+
 The following commands reproduce the reference checks from this worktree:
 
 ```sh
@@ -217,7 +241,7 @@ The original run directories are under `/private/var/folders/zj/d5cklrtd0cb5nl3s
 - The screen reader implements the VT subset emitted by these runs, not a complete terminal emulator or pixel comparison.
 - Vertical directory and window preview layouts remain unverified.
 - Error restoration uses invalid configuration before raw mode. Restoration after a runtime terminal-I/O error remains unverified.
-- SIGTERM and SIGHUP are tested. Suspend and resume remain unverified.
+- SIGTERM and SIGHUP are tested. Suspend/resume was verified through the separate Zig picker driver.
 - Timing covers a unique query entered as one input burst over 1,000 empty repositories. It does not measure preview latency, large Git histories, network filesystems, or human keystroke cadence.
 - No application CPU, syscall, or I/O profile was collected. The timing limiter and observer overhead remain unresolved.
-- No Zig binary was tested. The parent owns that comparison and independent review.
+- The integrated Zig comparison above covers macOS arm64. Linux runtime verification is separate.

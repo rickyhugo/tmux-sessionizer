@@ -29,6 +29,14 @@ steps {
     check = "mise run test:adapters"
     depends = "zig-test"
   }
+  ["command-compatibility"] {
+    check = "mise run test:compat"
+    depends = "zig-release"
+  }
+  ["terminal-compatibility"] {
+    check = "mise run test:terminal:strict"
+    depends = "command-compatibility"
+  }
   ["rust-fmt"] {
     glob = List("*.rs", "Cargo.toml", "rust-toolchain.toml")
     check = "cargo fmt --all -- --check"

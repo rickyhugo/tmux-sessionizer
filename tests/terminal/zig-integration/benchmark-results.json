@@ -1,0 +1,408 @@
+{
+  "verdict": "INCONCLUSIVE",
+  "decision": "Only a repeatable gap larger than within-side spread with an identified limiter could support an adoption claim. This script supplies timings, not limiter evidence.",
+  "limiter": "NOT IDENTIFIED. Collect a separate profile before claiming a speedup.",
+  "host": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+  "cores": 10,
+  "load": [
+    3.271484375,
+    5.3837890625,
+    12.75634765625
+  ],
+  "uptime": "12:36  up 3 days,  4:08, 4 users, load averages: 3.27 5.38 12.76",
+  "artifacts": {
+    "rust": {
+      "path": "/Users/hugo.englund/personal/tms-zig-terminal-tests/target/release/tms",
+      "sha256": "d3e5deaaa76f4f4208bdaa9e52759dfaff5c14788742fffe08b8ef784b93a1d0",
+      "version": "tmux-sessionizer 0.6.1"
+    },
+    "zig": {
+      "path": "/Users/hugo.englund/personal/tmux-sessionizer/.audit/integration-build/bin/tms",
+      "sha256": "c0e17565e6f62a0aeab99ce1e78bc023e52d1b7cc1175be56b42e8ad0f664bd8",
+      "version": "tmux-sessionizer 0.6.1"
+    }
+  },
+  "release_builds_attested": true,
+  "release_build_command_templates": {
+    "rust": "mise exec -- cargo build --release --locked",
+    "zig": "mise exec -- zig build -Doptimize=ReleaseFast"
+  },
+  "invocation": [
+    "/Users/hugo.englund/.local/share/mise/installs/python/3.14.7/bin/python3",
+    "scripts/benchmark.py",
+    "--rust",
+    "/Users/hugo.englund/personal/tms-zig-terminal-tests/target/release/tms",
+    "--zig",
+    ".audit/integration-build/bin/tms",
+    "--release-builds",
+    "--samples",
+    "7",
+    "--candidates",
+    "1000",
+    "--output",
+    ".audit/benchmark-integrated"
+  ],
+  "tmux": "tmux 3.8",
+  "timing_boundary": "Version uses subprocess launch through validated exit. Picker uses target launch inside the PTY supervisor through a complete candidate count. Search uses input write through a unique selected result, not the echoed prompt. Python supervisor startup and fixture creation are outside picker timings.",
+  "cache": "warm filesystem, new process and matcher for every sample, no warmup discarded",
+  "search": "Full unique query typed into the real picker after all candidates render. No extra redraw key is sent. Timeout is a failure, not a latency sample.",
+  "samples": [
+    {
+      "side": "rust",
+      "sample": 1,
+      "version_ms": 3.365374985150993,
+      "picker_startup_ms": 26.612874993588775,
+      "search_ms": 2.7505409670993686,
+      "picker_to_search_ms": 29.376624966971576,
+      "candidates": 1000,
+      "matched": 1,
+      "observed_counts": {
+        "startup": {
+          "matched": 1000,
+          "candidates": 1000
+        },
+        "search": {
+          "matched": 1,
+          "candidates": 1000
+        }
+      },
+      "errors": 0
+    },
+    {
+      "side": "zig",
+      "sample": 1,
+      "version_ms": 2.6692499523051083,
+      "picker_startup_ms": 54.08416601130739,
+      "search_ms": 1.8048750353045762,
+      "picker_to_search_ms": 55.903625034261495,
+      "candidates": 1000,
+      "matched": 1,
+      "observed_counts": {
+        "startup": {
+          "matched": 1000,
+          "candidates": 1000
+        },
+        "search": {
+          "matched": 1,
+          "candidates": 1000
+        }
+      },
+      "errors": 0
+    },
+    {
+      "side": "rust",
+      "sample": 2,
+      "version_ms": 3.996625018771738,
+      "picker_startup_ms": 18.34325003437698,
+      "search_ms": 2.8027090011164546,
+      "picker_to_search_ms": 21.161000011488795,
+      "candidates": 1000,
+      "matched": 1,
+      "observed_counts": {
+        "startup": {
+          "matched": 1000,
+          "candidates": 1000
+        },
+        "search": {
+          "matched": 1,
+          "candidates": 1000
+        }
+      },
+      "errors": 0
+    },
+    {
+      "side": "zig",
+      "sample": 2,
+      "version_ms": 2.5203340337611735,
+      "picker_startup_ms": 17.187208984978497,
+      "search_ms": 1.7923330306075513,
+      "picker_to_search_ms": 18.995749996975064,
+      "candidates": 1000,
+      "matched": 1,
+      "observed_counts": {
+        "startup": {
+          "matched": 1000,
+          "candidates": 1000
+        },
+        "search": {
+          "matched": 1,
+          "candidates": 1000
+        }
+      },
+      "errors": 0
+    },
+    {
+      "side": "rust",
+      "sample": 3,
+      "version_ms": 4.15300001623109,
+      "picker_startup_ms": 122.72262497572228,
+      "search_ms": 3.0126249766908586,
+      "picker_to_search_ms": 125.75345794903114,
+      "candidates": 1000,
+      "matched": 1,
+      "observed_counts": {
+        "startup": {
+          "matched": 1000,
+          "candidates": 1000
+        },
+        "search": {
+          "matched": 1,
+          "candidates": 1000
+        }
+      },
+      "errors": 0
+    },
+    {
+      "side": "zig",
+      "sample": 3,
+      "version_ms": 2.73274997016415,
+      "picker_startup_ms": 17.535666993353516,
+      "search_ms": 1.841291959863156,
+      "picker_to_search_ms": 19.39162501366809,
+      "candidates": 1000,
+      "matched": 1,
+      "observed_counts": {
+        "startup": {
+          "matched": 1000,
+          "candidates": 1000
+        },
+        "search": {
+          "matched": 1,
+          "candidates": 1000
+        }
+      },
+      "errors": 0
+    },
+    {
+      "side": "rust",
+      "sample": 4,
+      "version_ms": 3.978291992098093,
+      "picker_startup_ms": 18.68462498532608,
+      "search_ms": 2.8473329730331898,
+      "picker_to_search_ms": 21.54566696844995,
+      "candidates": 1000,
+      "matched": 1,
+      "observed_counts": {
+        "startup": {
+          "matched": 1000,
+          "candidates": 1000
+        },
+        "search": {
+          "matched": 1,
+          "candidates": 1000
+        }
+      },
+      "errors": 0
+    },
+    {
+      "side": "zig",
+      "sample": 4,
+      "version_ms": 2.4610409745946527,
+      "picker_startup_ms": 16.923625022172928,
+      "search_ms": 1.8110409728251398,
+      "picker_to_search_ms": 18.74937501270324,
+      "candidates": 1000,
+      "matched": 1,
+      "observed_counts": {
+        "startup": {
+          "matched": 1000,
+          "candidates": 1000
+        },
+        "search": {
+          "matched": 1,
+          "candidates": 1000
+        }
+      },
+      "errors": 0
+    },
+    {
+      "side": "rust",
+      "sample": 5,
+      "version_ms": 3.9320000214502215,
+      "picker_startup_ms": 17.86187500692904,
+      "search_ms": 2.707833016756922,
+      "picker_to_search_ms": 20.58554202085361,
+      "candidates": 1000,
+      "matched": 1,
+      "observed_counts": {
+        "startup": {
+          "matched": 1000,
+          "candidates": 1000
+        },
+        "search": {
+          "matched": 1,
+          "candidates": 1000
+        }
+      },
+      "errors": 0
+    },
+    {
+      "side": "zig",
+      "sample": 5,
+      "version_ms": 2.2947919787839055,
+      "picker_startup_ms": 18.45416601281613,
+      "search_ms": 1.8016250105574727,
+      "picker_to_search_ms": 20.270041015464813,
+      "candidates": 1000,
+      "matched": 1,
+      "observed_counts": {
+        "startup": {
+          "matched": 1000,
+          "candidates": 1000
+        },
+        "search": {
+          "matched": 1,
+          "candidates": 1000
+        }
+      },
+      "errors": 0
+    },
+    {
+      "side": "rust",
+      "sample": 6,
+      "version_ms": 3.7090000114403665,
+      "picker_startup_ms": 20.326999947428703,
+      "search_ms": 2.7426250162534416,
+      "picker_to_search_ms": 23.081958992406726,
+      "candidates": 1000,
+      "matched": 1,
+      "observed_counts": {
+        "startup": {
+          "matched": 1000,
+          "candidates": 1000
+        },
+        "search": {
+          "matched": 1,
+          "candidates": 1000
+        }
+      },
+      "errors": 0
+    },
+    {
+      "side": "zig",
+      "sample": 6,
+      "version_ms": 2.5069580296985805,
+      "picker_startup_ms": 18.694582977332175,
+      "search_ms": 1.8053340027108788,
+      "picker_to_search_ms": 20.51454095635563,
+      "candidates": 1000,
+      "matched": 1,
+      "observed_counts": {
+        "startup": {
+          "matched": 1000,
+          "candidates": 1000
+        },
+        "search": {
+          "matched": 1,
+          "candidates": 1000
+        }
+      },
+      "errors": 0
+    },
+    {
+      "side": "rust",
+      "sample": 7,
+      "version_ms": 3.7775840028189123,
+      "picker_startup_ms": 54.4278749730438,
+      "search_ms": 6.264999974519014,
+      "picker_to_search_ms": 60.715499974321574,
+      "candidates": 1000,
+      "matched": 1,
+      "observed_counts": {
+        "startup": {
+          "matched": 1000,
+          "candidates": 1000
+        },
+        "search": {
+          "matched": 1,
+          "candidates": 1000
+        }
+      },
+      "errors": 0
+    },
+    {
+      "side": "zig",
+      "sample": 7,
+      "version_ms": 8.891541976481676,
+      "picker_startup_ms": 144.11166700301692,
+      "search_ms": 2.1280000219121575,
+      "picker_to_search_ms": 146.254500024952,
+      "candidates": 1000,
+      "matched": 1,
+      "observed_counts": {
+        "startup": {
+          "matched": 1000,
+          "candidates": 1000
+        },
+        "search": {
+          "matched": 1,
+          "candidates": 1000
+        }
+      },
+      "errors": 0
+    }
+  ],
+  "errors": [],
+  "summary": {
+    "rust": {
+      "version_ms": {
+        "median": 3.9320000214502215,
+        "min": 3.365374985150993,
+        "max": 4.15300001623109,
+        "unit": "ms",
+        "n": 7
+      },
+      "picker_startup_ms": {
+        "median": 20.326999947428703,
+        "min": 17.86187500692904,
+        "max": 122.72262497572228,
+        "unit": "ms",
+        "n": 7
+      },
+      "search_ms": {
+        "median": 2.8027090011164546,
+        "min": 2.707833016756922,
+        "max": 6.264999974519014,
+        "unit": "ms",
+        "n": 7
+      },
+      "picker_to_search_ms": {
+        "median": 23.081958992406726,
+        "min": 20.58554202085361,
+        "max": 125.75345794903114,
+        "unit": "ms",
+        "n": 7
+      }
+    },
+    "zig": {
+      "version_ms": {
+        "median": 2.5203340337611735,
+        "min": 2.2947919787839055,
+        "max": 8.891541976481676,
+        "unit": "ms",
+        "n": 7
+      },
+      "picker_startup_ms": {
+        "median": 18.45416601281613,
+        "min": 16.923625022172928,
+        "max": 144.11166700301692,
+        "unit": "ms",
+        "n": 7
+      },
+      "search_ms": {
+        "median": 1.8053340027108788,
+        "min": 1.7923330306075513,
+        "max": 2.1280000219121575,
+        "unit": "ms",
+        "n": 7
+      },
+      "picker_to_search_ms": {
+        "median": 20.270041015464813,
+        "min": 18.74937501270324,
+        "max": 146.254500024952,
+        "unit": "ms",
+        "n": 7
+      }
+    }
+  }
+}
