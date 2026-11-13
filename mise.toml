@@ -27,6 +27,7 @@ description = "Check compatibility test isolation"
 run = [
   "python3 -m unittest discover -s tests/compat -p 'test_*.py'",
   "python3 -m unittest discover -s tests/terminal -p 'test_*.py'",
+  "python3 -m unittest discover -s tests/packaging -p 'test_*.py'",
 ]
 
 [tasks."test:compat"]
