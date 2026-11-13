@@ -1,0 +1,50 @@
+# Native Zig picker
+
+The picker preserves stable item IDs and original labels without fzf. Its only subprocess preview dependency is tmux. Directory previews use native enumeration and libc locale collation, not `ls`.
+
+## Ownership
+
+`src/picker.zig` owns the pure reducer and picker loop. Configuration supplies resolved bindings through `config.pickerOptions`. The reducer does not add a second set of defaults. Rendering supplies the reference color defaults when a color remains absent.
+
+Private modules own input decoding, terminal lifetime, previews, rendering, and Unicode width. Query editing counts Unicode scalars. Cursor placement and clipping use display cells and complete extended grapheme clusters.
+
+The result allocator is unused because the result is an item ID. The scratch allocator owns the query, candidate-label array, and current ranked indices. Every replacement ranking frees the previous result. A resettable frame arena owns preview output and rendering bytes. No keystroke allocation survives in the command arena.
+
+One terminal owner saves attributes and signal handlers. Every normal or error return restores attributes, cursor visibility, and the alternate screen. SIGTERM, SIGHUP, SIGINT, and SIGQUIT restore the terminal before re-raising the original signal. SIGTSTP restores it before suspension. Resume re-enters raw mode and redraws. SIGWINCH redraws without a keypress.
+
+Darwin `poll` rejects the `/dev/tty` alias. The owner reopens the concrete terminal device returned by `ttyname_r`. Saved-attribute comparisons ignore only Darwin's kernel-set `PENDIN` retype flag.
+
+Labels cannot emit terminal control sequences. Previews accept bounded numeric SGR sequences and discard other escapes, OSC payloads, and control characters.
+
+## Unicode sources
+
+`width.zig` translates the non-CJK width rules from unicode-width 0.2.0 and extended grapheme boundaries from unicode-segmentation 1.12.0. Their Unicode versions are 15.1 and 16.0. The MIT notices are in `src/picker/LICENSE-unicode-width`.
+
+`width-data.bin` contains sorted, fixed-width property records. It is compiled into the executable. Width calculation does not depend on the process locale.
+
+`generate-width-data.py` checks both source hashes and the reference Rust 1.99.0 compiler before regeneration. Rust and Python are development-only regeneration tools.
+
+```sh
+mise exec -- python3 src/picker/generate-width-data.py /path/to/unicode-width-0.2.0/src/tables.rs /path/to/unicode-segmentation-1.12.0/src/tables.rs
+```
+
+## Executed verification
+
+The host was macOS arm64. Zig 0.17.1 built the temporary native driver through mise. The driver used the real matcher and tmux adapters, explicit reference bindings, and candidate IDs unrelated to injection indices.
+
+- All 16 picker unit tests pass. They cover every editing action, Unicode scalar edits, modified bindings, wrapping, result clamping, fragmented UTF-8 and escape sequences, sanitization, directory previews, display widths, grapheme clipping, and tiny dimensions.
+- All 24 controlling-PTY scenarios pass with the production-optimized driver. Each completed scenario compares saved terminal attributes and screen restoration.
+- PTY scenarios cover original-ID confirmation, top and bottom navigation, Ctrl-J versus Enter, cancellation, custom bindings, no-match recovery, fragmented Unicode editing, C-locale wide/combining/emoji cursors, resize through zero and one-cell sizes, repeated edits, four termination signals, suspend/resume, and real session/window capture previews.
+- Three PTY cases inject allocator failures after terminal entry. They verify restoration after label, ranking, and frame allocation errors.
+- A temporary differential oracle matches upstream width and first-grapheme results for 6,651 deterministic Unicode vectors.
+- Native driver cross-compilation succeeds for macOS x86_64, Linux x86_64 GNU, and Linux x86_64 musl. These are compile checks, not runtime verification.
+
+`mise exec -- zig build test` runs the committed module tests. Temporary driver sources, PTY transcripts, and differential tools remain under `$TMPDIR/opencode/picker-*` for parent integration. The latest PTY report is `picker-pty-evidence/results.json`.
+
+## Compatibility and limits
+
+The approved improvements use display-cell cursor placement, safe tiny-size arithmetic, signal cleanup, and immediate rendering after matching completes.
+
+The reference's narrow vertical-preview behavior remains unchanged. Rendering puts input below the list, while navigation follows the configured input position.
+
+The renderer is not a pixel-identical ratatui replacement. Full application, attached-popup, configuration-default integration, packaging, and performance checks belong to the parent. Linux runtime behavior remains unverified. Previews and matching remain synchronous, so signal handling waits for an in-progress preview or ranking call to return.
