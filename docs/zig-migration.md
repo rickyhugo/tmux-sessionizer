@@ -24,7 +24,7 @@ An unexecuted check remains open. A failing reference case is recorded separatel
 
 - [x] Read the Principles section of the poteto-mode skill.
 - [x] Phase A: Frame.
-- [ ] Phase B: Design the workflow.
+- [x] Phase B: Design the workflow.
 - [ ] Phase C: Run the loop.
 - [ ] Phase D: Keep the audit trail.
 - [ ] Phase E: Verify and hand back.
@@ -45,10 +45,10 @@ Each unit ends with an executable check before its dependent unit begins.
 
 ## Throughput checkpoint
 
-- [ ] **Blocking first steps.** Capture Rust behavior and agree on shared types before implementation.
-- [ ] **Independent workstreams.** Investigate commands, configuration and discovery, and picker and packaging separately. Partition implementation after interfaces are fixed.
-- [ ] **Shared mutable state.** Give each writer a separate worktree. The coordinator integrates verified commits serially.
-- [ ] **Smallest safe decomposition.** Keep integration under one owner. Split independent modules and verification artifacts into bounded assignments.
+- [ ] **Blocking first steps.** Rust fixtures pass independently. Compile the shared Zig contracts before the behavior workstreams start.
+- [x] **Independent workstreams.** Separate baseline compatibility tests, terminal verification, tooling, and build contracts. Split behavior implementation into configuration, repositories, matching, picker, and command integration after contracts compile.
+- [x] **Shared mutable state.** Give each writer a separate worktree. The coordinator integrates verified commits serially.
+- [x] **Smallest safe decomposition.** Keep integration under the coordinator. Workers cannot delegate further because the harness limits subagent depth.
 
 ## Coverage
 
@@ -68,6 +68,14 @@ The work spans 13 commands, the default picker, shell completion, two repository
 The initial exploration identified three difficult boundaries. Nucleo has richer semantics than generic fuzzy matching. Configuration parsing includes legacy coercions. jj generated picker entries include workspace-store records that its active-workspace CLI does not return.
 
 The environment has Zig 0.17.1, hk 2.12.0, and jj 0.38.0 installed through mise. It has tmux 3.8 and Git 2.56.0. Nix was not found on PATH. Nix execution remains open until a suitable environment runs it.
+
+## Verified units
+
+- `mise run ci` passed hk validation, formatting, and all 16 existing Rust tests after tooling integration.
+- `mise run test:compat:rust` passed 42 command cases and 25 ranking vectors on the integration branch.
+- `mise run test:terminal:rust` passed seven real tmux terminal scenarios on the integration branch.
+
+These prove the reference and its harness. They do not establish Zig compatibility.
 
 ## Decisions
 

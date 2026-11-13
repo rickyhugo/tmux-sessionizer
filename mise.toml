@@ -29,6 +29,30 @@ run = "cargo build --locked"
 description = "Run Rust reference tests"
 run = "cargo test --locked"
 
+[tasks."build:rust-oracle"]
+description = "Build the Rust ranking reference"
+run = "cargo build --locked --example compat_oracle"
+
+[tasks."test:compat:rust"]
+description = "Replay command and ranking fixtures against Rust"
+depends = ["build:rust", "build:rust-oracle"]
+run = "python3 scripts/compat.py --jj --oracle target/debug/examples/compat_oracle"
+
+[tasks."test:compat"]
+description = "Compare Zig commands and ranking with the Rust fixtures"
+depends = ["build"]
+run = "python3 scripts/compat.py --jj --bin zig-out/bin/tms --oracle zig-out/bin/tms-oracle"
+
+[tasks."test:terminal:rust"]
+description = "Exercise the Rust picker in isolated tmux terminals"
+depends = ["build:rust"]
+run = "python3 scripts/compat_terminal.py"
+
+[tasks."test:terminal"]
+description = "Exercise the Zig picker in isolated tmux terminals"
+depends = ["build"]
+run = "python3 scripts/compat_terminal.py --bin zig-out/bin/tms"
+
 [tasks.fmt]
 description = "Format Zig and Rust files through hk"
 run = "hk fix --all --step zig-fmt --step rust-fmt"

@@ -5,7 +5,8 @@
 Install [mise](https://mise.jdx.dev/getting-started.html).
 Install Git with your system package manager.
 mise supplies tmux, jj, and the development tools.
-Outside mise, the runtime needs Git, tmux, and jj on `PATH`.
+Outside mise, the runtime needs Git and tmux on `PATH`.
+It needs jj when a configured repository provider uses jj.
 
 From the repository root, run:
 
