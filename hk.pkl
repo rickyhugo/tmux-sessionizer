@@ -37,6 +37,10 @@ steps {
     check = "mise run test:terminal:strict"
     depends = "command-compatibility"
   }
+  ["picker-regressions"] {
+    check = "mise run test:picker:regressions"
+    depends = "zig-test"
+  }
   ["rust-fmt"] {
     glob = List("*.rs", "Cargo.toml", "rust-toolchain.toml")
     check = "cargo fmt --all -- --check"

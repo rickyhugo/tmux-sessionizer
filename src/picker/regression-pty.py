@@ -139,7 +139,6 @@ def invalid_utf8(p):
 def saturated(p):
     p.resize(65535)
     assert select.select([p.master], [], [], 2)[0], "wide frame did not start"
-    # Let the writer fill the PTY queue without reading any of that frame.
     select.select([], [], [], 0.2)
     os.kill(p.pid, signal.SIGTERM)
     p.finish(-signal.SIGTERM, drain=False)

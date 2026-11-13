@@ -191,7 +191,10 @@ The full optimized Zig application passed all 21 strict PTY and popup checks on
 macOS arm64. Its SHA-256 was
 `c0e17565e6f62a0aeab99ce1e78bc023e52d1b7cc1175be56b42e8ad0f664bd8`.
 The separate picker driver also passed suspend/resume and allocation-failure cleanup.
-Blocked-output and malformed-input review fixes remain open.
+Blocked-output, malformed-input, doubled-Escape, and contextual-width fixes
+subsequently passed seven focused PTY regressions and all 21 full application checks.
+That executable's SHA-256 was
+`e4ca174dd5431532339fd8628048cc88c38389be4c64b2474e1dff5063c7e2f0`.
 
 The [integrated comparison](../tests/terminal/zig-integration/benchmark-results.json)
 records seven alternating release samples per implementation over 1,000 repositories.

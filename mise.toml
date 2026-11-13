@@ -74,6 +74,10 @@ description = "Verify Zig PTY and popup behavior with Unicode and cleanup fixes"
 depends = ["test:harness", "build:release"]
 run = "python3 scripts/terminal_checks.py --binary zig-out/bin/tms --require-improvements --output .audit/terminal"
 
+[tasks."test:picker:regressions"]
+description = "Verify cancellation under blocked output and fragmented input"
+run = "python3 src/picker/regression-pty.py"
+
 [tasks.fmt]
 description = "Format Zig and Rust files through hk"
 run = "hk fix --all --step zig-fmt --step rust-fmt"
