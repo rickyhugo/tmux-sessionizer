@@ -290,12 +290,18 @@ pub fn commit(io: Io, a: A, env: *const Env, cfg: *Config, edit: Edit) anyerror!
         if (try homeDir(a, env)) |h| break :blk try std.fs.path.join(a, &.{ h, ".config/tms/config.toml" });
         return error.NoConfigLocation;
     };
+    const text = toml.encode(a, cfg.*) catch |err| switch (err) {
+        error.ConfigIntegerOutOfRange => return error.ConfigSerializationOutOfRange,
+        else => return err,
+    };
     if (std.fs.path.dirname(path)) |parent| try Io.Dir.cwd().createDirPath(io, parent);
-    try Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = try toml.encode(a, cfg.*) });
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = text });
 }
 
 pub fn editDiagnostic(err: anyerror) ?Diagnostic {
     return switch (err) {
+        error.ConfigIntegerOutOfRange => .{ .text = "Error: Config Error\n╰─▶ out-of-range value for u64 type\n" },
+        error.ConfigSerializationOutOfRange => .{ .text = "Error: Config Error\n├─▶ Could not serialize config to TOML\n╰─▶ out-of-range value for u64 type\n" },
         error.RemoveWithoutExclusions => .{ .exit_code = 101, .text = "\npanic:\nnot yet implemented\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n" },
         error.MarkHasNoName => .{ .exit_code = 101, .text = "\npanic:\nThe file name doesn't end in `..`\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n" },
         error.FileNotFound => .{ .text = "Error: IO Error\n╰─▶ No such file or directory (os error 2)\n" },
@@ -440,6 +446,16 @@ fn variableCharacter(scalar: u21) bool {
     return false;
 }
 
+pub fn setBinding(a: A, bindings: *std.ArrayList(Binding), binding: Binding) !void {
+    for (bindings.items) |*old| {
+        if (std.meta.eql(old.key, binding.key)) {
+            old.* = binding;
+            return;
+        }
+    }
+    try bindings.append(a, binding);
+}
+
 pub fn pickerOptions(a: A, cfg: *const Config) anyerror!PickerOptions {
     var colors = cfg.picker_colors orelse PickerColors{};
     const defaults = PickerColors{ .highlight_color = .light_blue, .highlight_text_color = .black, .border_color = .dark_gray, .info_color = .light_yellow, .prompt_color = .light_green };
@@ -448,17 +464,7 @@ pub fn pickerOptions(a: A, cfg: *const Config) anyerror!PickerOptions {
     const names = [_][]const u8{ "ctrl-c", "esc", "enter", "delete", "ctrl-d", "backspace", "down", "ctrl-j", "ctrl-n", "up", "ctrl-k", "ctrl-p", "left", "right", "ctrl-w", "ctrl-u", "ctrl-a", "ctrl-e" };
     const actions = [_]PickerAction{ .cancel, .cancel, .confirm, .delete, .delete, .backspace, .move_down, .move_down, .move_down, .move_up, .move_up, .move_up, .cursor_left, .cursor_right, .delete_word, .delete_to_line_start, .move_to_line_start, .move_to_line_end };
     for (names, actions) |name, action| try bindings.append(a, .{ .key = try parseKey(name), .action = action });
-    for (cfg.shortcuts orelse &.{}) |binding| {
-        var found = false;
-        for (bindings.items) |*old| {
-            if (std.meta.eql(old.key, binding.key)) {
-                old.* = binding;
-                found = true;
-                break;
-            }
-        }
-        if (!found) try bindings.append(a, binding);
-    }
+    for (cfg.shortcuts orelse &.{}) |binding| try setBinding(a, &bindings, binding);
     return .{ .colors = colors, .input_position = cfg.input_position orelse .bottom, .bindings = try bindings.toOwnedSlice(a) };
 }
 
@@ -591,12 +597,14 @@ fn loadFile(io: Io, a: A, tree: *toml.Value, path: []const u8, diagnostic: ?*?[]
     if (stat.kind != .file) return false;
     // Optional config sources ignore existing files with unregistered extensions.
     if (!std.mem.eql(u8, std.fs.path.extension(path), ".toml")) return true;
-    const file = Io.Dir.cwd().openFile(io, path, .{}) catch return false;
+    // Once selected, an optional source suppresses IO failures without selecting
+    // a different filename. Only an absent source permits extension inference.
+    const file = Io.Dir.cwd().openFile(io, path, .{}) catch return true;
     defer file.close(io);
     var reader = file.reader(io, &.{});
     const bytes = reader.interface.allocRemaining(a, .unlimited) catch |err| switch (err) {
         error.OutOfMemory => return err,
-        else => return false,
+        else => return true,
     };
     const text = try utf8Lossy(a, if (std.mem.startsWith(u8, bytes, "\xef\xbb\xbf")) bytes[3..] else bytes);
     var message: ?[]const u8 = null;
@@ -719,6 +727,23 @@ test "defaults and shortcut overrides" {
     try std.testing.expectEqual(Color.white, try parseColor("bright-grey"));
 }
 
+test "shortcut replacement coalesces parsed aliases and keeps the last override" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const cfg = try toml.decode(Config, a, try toml.parse(a, "[shortcuts]\nctrl-C = 'confirm'\nCTRL-c = ''\n"));
+    try std.testing.expectEqual(@as(usize, 1), cfg.shortcuts.?.len);
+    const options = try pickerOptions(a, &.{ .shortcuts = &.{
+        .{ .key = try parseKey("ctrl-C"), .action = .confirm },
+        .{ .key = try parseKey("ctrl-c"), .action = .noop },
+        .{ .key = try parseKey("ctrl-X"), .action = .cancel },
+        .{ .key = try parseKey("CTRL-x"), .action = .delete },
+    } });
+    try std.testing.expectEqual(@as(usize, 19), options.bindings.len);
+    try std.testing.expectEqual(PickerAction.noop, options.bindings[0].action);
+    try std.testing.expectEqual(PickerAction.delete, options.bindings[18].action);
+}
+
 test "path expansion preserves empty variables, literal defaults, and variable tildes" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -839,4 +864,172 @@ test "raw saves, canonical roots, bookmarks, and valid mark allocation" {
     isolated.search_dirs = &.{.{ .path = "/no/such/directory", .depth = 1 }};
     try std.testing.expectError(error.NoValidSearchPath, searchRoots(io, a, &env, &isolated));
     try std.testing.expectError(error.RemoveWithoutExclusions, commit(io, a, &env, &isolated, .{ .settings = .{ .remove = &.{"missing"} } }));
+}
+
+test "out-of-range TOML depths fail before replacing a saved configuration" {
+    if (@bitSizeOf(usize) < 64) return error.SkipZigTest;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const path = try tmp.dir.realPathFileAlloc(io, ".", a);
+    var env: Env = .init(a);
+    const file = try std.fs.path.join(a, &.{ path, "config.toml" });
+    try env.put("TMS_CONFIG_FILE", file);
+    const saved = "default_session = 'preserved'\n";
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = file, .data = saved });
+    for ([_]usize{ @as(usize, std.math.maxInt(i64)) + 1, std.math.maxInt(usize) }) |depth| {
+        var cfg = try load(io, a, &env);
+        try std.testing.expectError(error.ConfigSerializationOutOfRange, commit(io, a, &env, &cfg, .{ .settings = .{
+            .paths = &.{path},
+            .max_depths = &.{depth},
+        } }));
+        try std.testing.expectEqualStrings(saved, try Io.Dir.cwd().readFileAlloc(io, file, a, .unlimited));
+        try std.testing.expectEqualStrings("preserved", (try load(io, a, &env)).default_session.?);
+        try std.testing.expectError(error.ConfigIntegerOutOfRange, exportToml(a, &cfg, false));
+    }
+    const valid: Config = .{ .search_dirs = &.{.{ .path = path, .depth = std.math.maxInt(i64) }} };
+    const exported = try toml.parse(a, try exportToml(a, &valid, false));
+    try std.testing.expectEqual(std.math.maxInt(i64), exported.table.get("search_dirs").?.array[0].table.get("depth").?.integer);
+}
+
+test "an unreadable selected config source does not fall back to another filename" {
+    if (std.c.getuid() == 0) return error.SkipZigTest;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const root = try tmp.dir.realPathFileAlloc(io, ".", a);
+    const path = try std.fs.path.join(a, &.{ root, "config.toml" });
+    const fallback = try std.fmt.allocPrint(a, "{s}.toml", .{path});
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = "default_session = 'unreadable'\n" });
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = fallback, .data = "default_session = 'fallback'\n" });
+    const file = try Io.Dir.cwd().openFile(io, path, .{});
+    defer file.close(io);
+    try file.setPermissions(io, .fromMode(0));
+    defer file.setPermissions(io, .fromMode(0o600)) catch {};
+    var env: Env = .init(a);
+    try env.put("TMS_CONFIG_FILE", path);
+    try std.testing.expect((try load(io, a, &env)).default_session == null);
+    try file.setPermissions(io, .fromMode(0o600));
+    try std.testing.expectEqualStrings("unreadable", (try load(io, a, &env)).default_session.?);
+    try Io.Dir.cwd().deleteFile(io, path);
+    try std.testing.expectEqualStrings("fallback", (try load(io, a, &env)).default_session.?);
+}
+
+test "year-zero TOML timestamps survive decoding and export" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    for ([_][]const u8{ "0000-01-01", "0000-02-29", "0000-01-01T00:00:00Z" }) |timestamp| {
+        const cfg = try toml.decode(Config, a, try toml.parse(a, try std.fmt.allocPrint(a, "default_session = {s}\n", .{timestamp})));
+        const exported = try toml.parse(a, try exportToml(a, &cfg, false));
+        try std.testing.expectEqualStrings(timestamp, exported.table.get("default_session").?.string);
+    }
+    try std.testing.expectError(error.InvalidToml, toml.parse(a, "default_session = 0000-02-30\n"));
+    try std.testing.expectError(error.InvalidToml, toml.parse(a, "default_session = 0001-02-29\n"));
+}
+
+test "TOML floats underflow to signed zero without becoming parse errors" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    for ([_][]const u8{ "1e-999", "-1e-999" }, [_][]const u8{ "0", "-0" }) |literal, expected| {
+        const cfg = try toml.decode(Config, a, try toml.parse(a, try std.fmt.allocPrint(
+            a,
+            "default_session = {s}\ndisplay_full_path = {s}\nsearch_dirs = [{{path = 'a', depth = {s}}}]\n",
+            .{ literal, literal, literal },
+        )));
+        const exported = try toml.parse(a, try exportToml(a, &cfg, false));
+        try std.testing.expectEqualStrings(expected, exported.table.get("default_session").?.string);
+        try std.testing.expectEqual(false, cfg.display_full_path.?);
+        try std.testing.expectEqual(@as(usize, 0), cfg.search_dirs.?[0].depth);
+    }
+    try std.testing.expectError(error.InvalidToml, toml.parse(a, "default_session = 1e999\n"));
+    try std.testing.expectError(error.InvalidToml, toml.parse(a, "default_session = -1e999\n"));
+}
+
+test "NaN string coercion matches Rust for every TOML sign" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    for ([_][]const u8{ "nan", "+nan", "-nan" }) |literal| {
+        const cfg = try toml.decode(Config, a, try toml.parse(a, try std.fmt.allocPrint(
+            a,
+            "default_session = {s}\nbookmarks = [{s}]\n[marks]\n'0' = {s}\n",
+            .{ literal, literal, literal },
+        )));
+        const exported = try toml.parse(a, try exportToml(a, &cfg, false));
+        try std.testing.expectEqualStrings("NaN", exported.table.get("default_session").?.string);
+        try std.testing.expectEqualStrings("NaN", cfg.bookmarks.?[0]);
+        try std.testing.expectEqualStrings("NaN", cfg.marks.?.get("0").?);
+    }
+}
+
+test "load diagnostics preserve enum representation, variant, and indexed keys" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const root = try tmp.dir.realPathFileAlloc(io, ".", a);
+    const path = try std.fs.path.join(a, &.{ root, "config.toml" });
+    var env: Env = .init(a);
+    try env.put("TMS_CONFIG_FILE", path);
+    const Case = struct { text: []const u8, expected: []const u8 };
+    for ([_]Case{
+        .{ .text = "session_sort_order = {Bad = []}", .expected = "enum SessionSortOrderConfig does not have variant constructor Bad for key `session_sort_order`" },
+        .{ .text = "vcs_providers = [{Bad = []}]", .expected = "enum VcsProviders does not have variant constructor Bad for key `vcs_providers[0]`" },
+        .{ .text = "session_sort_order = 1", .expected = "value of enum SessionSortOrderConfig should be represented by either string or table with exactly one key for key `session_sort_order`" },
+        .{ .text = "vcs_providers = [1]", .expected = "value of enum VcsProviders should be represented by either string or table with exactly one key for key `vcs_providers[0]`" },
+        .{ .text = "session_sort_order = {}", .expected = "value of enum SessionSortOrderConfig should be represented by either string or table with exactly one key for key `session_sort_order`" },
+        .{ .text = "session_sort_order = []", .expected = "value of enum SessionSortOrderConfig should be represented by either string or table with exactly one key for key `session_sort_order`" },
+        .{ .text = "session_sort_order = {Bad = [], Wrong = []}", .expected = "value of enum SessionSortOrderConfig should be represented by either string or table with exactly one key for key `session_sort_order`" },
+    }) |case| {
+        try Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = case.text });
+        const result = try loadDetailed(io, a, &env);
+        try std.testing.expect(result == .diagnostic);
+        try std.testing.expectEqual(@as(u8, 1), result.diagnostic.exit_code);
+        try std.testing.expectEqualStrings(try std.fmt.allocPrint(
+            a,
+            "Error: Config Error\n├─▶ Could not load configuration\n│   ╰╴Could not deserialize configuration\n╰─▶ {s}\n",
+            .{case.expected},
+        ), result.diagnostic.text);
+    }
+}
+
+test "load diagnostics describe short sequence structs and their nested keys" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const root = try tmp.dir.realPathFileAlloc(io, ".", a);
+    const path = try std.fs.path.join(a, &.{ root, "config.toml" });
+    var env: Env = .init(a);
+    try env.put("TMS_CONFIG_FILE", path);
+    const Case = struct { text: []const u8, expected: []const u8 };
+    for ([_]Case{
+        .{ .text = "sessions = [['a']]", .expected = "invalid length 1, expected struct Session with 3 elements for key `sessions[0]`" },
+        .{ .text = "sessions = [['a', 'b']]", .expected = "invalid length 2, expected struct Session with 3 elements for key `sessions[0]`" },
+        .{ .text = "search_dirs = [['a']]", .expected = "invalid length 1, expected struct SearchDirectory with 2 elements for key `search_dirs[0]`" },
+        .{ .text = "sessions = [{windows = [['a']]}]", .expected = "invalid length 1, expected struct Window with 4 elements for key `sessions[0]windows[0]`" },
+        .{ .text = "picker_colors = []", .expected = "invalid length 0, expected struct PickerColorConfig with 5 elements for key `picker_colors`" },
+        .{ .text = "session_configs = {a = []}", .expected = "invalid length 0, expected struct SessionConfig with 1 element for key `session_configs.a`" },
+    }) |case| {
+        try Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = case.text });
+        const result = try loadDetailed(io, a, &env);
+        try std.testing.expect(result == .diagnostic);
+        try std.testing.expectEqualStrings(try std.fmt.allocPrint(
+            a,
+            "Error: Config Error\n├─▶ Could not load configuration\n│   ╰╴Could not deserialize configuration\n╰─▶ {s}\n",
+            .{case.expected},
+        ), result.diagnostic.text);
+    }
 }

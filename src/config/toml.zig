@@ -92,7 +92,7 @@ pub fn string(a: A, value: Value) ![]const u8 {
     return switch (value) {
         .string => |s| s,
         .integer => |n| std.fmt.allocPrint(a, "{d}", .{n}),
-        .float => |n| std.fmt.allocPrint(a, "{d}", .{n}),
+        .float => |n| if (std.math.isNan(n)) "NaN" else std.fmt.allocPrint(a, "{d}", .{n}),
         .boolean => |b| if (b) "true" else "false",
         else => error.InvalidConfigType,
     };
@@ -134,7 +134,36 @@ pub fn explain(comptime T: type, a: A, value: Value, key: []const u8, source: []
         },
         .@"enum" => {
             const name = if (T == cfg.VcsProvider) "VcsProviders" else if (T == cfg.Order) "SessionSortOrderConfig" else if (T == cfg.CloneSwitch) "CloneRepoSwitchConfig" else "InputPosition";
-            return std.fmt.allocPrint(a, "enum {s} does not have variant constructor {s} for key `{s}`", .{ name, try string(a, value), key });
+            const variant = enumText(value) catch return std.fmt.allocPrint(a, "value of enum {s} should be represented by either string or table with exactly one key for key `{s}`", .{ name, key });
+            return std.fmt.allocPrint(a, "enum {s} does not have variant constructor {s} for key `{s}`", .{ name, variant, key });
+        },
+        .@"struct" => |s| {
+            if (T == std.StringHashMapUnmanaged(cfg.SessionConfig) or T == std.StringHashMapUnmanaged([]const u8)) {
+                const Child = if (T == std.StringHashMapUnmanaged(cfg.SessionConfig)) cfg.SessionConfig else []const u8;
+                if (value == .table) {
+                    var it = value.table.iterator();
+                    while (it.next()) |entry| {
+                        _ = decode(Child, a, entry.value_ptr.*) catch return explain(Child, a, entry.value_ptr.*, try std.fmt.allocPrint(a, "{s}.{s}", .{ key, entry.key_ptr.* }), source);
+                    }
+                }
+            } else if (value == .array or value == .table) {
+                inline for (s.field_names, s.field_types, 0..) |name, Field, i| {
+                    if (if (value == .table) value.table.get(name) else if (i < value.array.len) value.array[i] else null) |v| {
+                        _ = decode(Field, a, v) catch {
+                            // The reference joins a named field directly after an array index.
+                            const child_key = if (value == .array)
+                                try std.fmt.allocPrint(a, "{s}[{d}]", .{ key, i })
+                            else
+                                try std.fmt.allocPrint(a, "{s}{s}{s}", .{ key, if (std.mem.endsWith(u8, key, "]")) "" else ".", name });
+                            return explain(Field, a, v, child_key, source);
+                        };
+                    }
+                }
+                if (value == .array and value.array.len < s.field_names.len) {
+                    const name = if (T == cfg.StartupSession) "Session" else if (T == cfg.Window) "Window" else if (T == cfg.SearchDirectory) "SearchDirectory" else if (T == cfg.PickerColors) "PickerColorConfig" else if (T == cfg.SessionConfig) "SessionConfig" else @typeName(T);
+                    return std.fmt.allocPrint(a, "invalid length {d}, expected struct {s} with {d} element{s} for key `{s}`", .{ value.array.len, name, s.field_names.len, if (s.field_names.len == 1) "" else "s", key });
+                }
+            }
         },
         else => {},
     }
@@ -174,15 +203,7 @@ pub fn decode(comptime T: type, a: A, value: Value) anyerror!T {
         var it = value.table.iterator();
         while (it.next()) |entry| {
             const binding: cfg.Binding = .{ .key = try cfg.parseKey(entry.key_ptr.*), .action = try decode(cfg.PickerAction, a, entry.value_ptr.*) };
-            var found = false;
-            for (bindings.items) |*old| {
-                if (std.meta.eql(old.key, binding.key)) {
-                    old.* = binding;
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) try bindings.append(a, binding);
+            try cfg.setBinding(a, &bindings, binding);
         }
         return bindings.toOwnedSlice(a);
     }
@@ -315,7 +336,10 @@ fn write(a: A, w: *std.Io.Writer, value: anytype) anyerror!void {
     }
     switch (@typeInfo(T)) {
         .bool => try w.writeAll(if (value) "true" else "false"),
-        .int => try w.print("{d}", .{value}),
+        .int => {
+            const integer = std.math.cast(i64, value) orelse return error.ConfigIntegerOutOfRange;
+            try w.print("{d}", .{integer});
+        },
         .@"enum" => try quote(w, enumName(value)),
         .pointer => {
             try w.writeByte('[');

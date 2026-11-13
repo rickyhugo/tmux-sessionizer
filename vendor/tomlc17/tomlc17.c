@@ -2335,7 +2335,8 @@ static int scan_litstring(scanner_t *sp, token_t *tok) {
 }
 
 static bool is_valid_date(int year, int month, int day) {
-  if (!(1 <= year)) {
+  // Match toml_datetime's four-digit year range, including year zero.
+  if (!(0 <= year)) {
     return false;
   }
   if (!(1 <= month && month <= 12)) {
@@ -2742,9 +2743,9 @@ static int scan_float(scanner_t *sp, token_t *tok) {
   errno = 0;
   char *q;
   double fp64 = strtod(buffer, &q);
-  // glibc sets ERANGE on underflow even when strtod's result is correctly
-  // rounded, e.g. 5e-324; accept such results, but still reject a value that
-  // underflowed to zero or overflowed to infinity. Test the raw bits rather
+  // Accept finite underflow, including signed zero, as Rust's f64 parser does.
+  // glibc sets ERANGE even for correctly rounded subnormals, e.g. 5e-324.
+  // Continue to reject overflow to infinity. Test the raw bits rather
   // than "fp64 != 0.0" and isfinite(): if the calling program enables
   // denormals-are-zero (e.g. an app linked with -ffast-math, or built with
   // Intel icx), an FP compare reads a subnormal as 0.0 (issue #49).
@@ -2752,9 +2753,9 @@ static int scan_float(scanner_t *sp, token_t *tok) {
   uint64_t fp64_bits;
   memcpy(&fp64_bits, &fp64, sizeof(fp64));
   uint64_t fp64_mag = fp64_bits & 0x7fffffffffffffffULL; // drop the sign bit
-  int is_ok_subnormal =
-      (errno == ERANGE) && fp64_mag != 0 && fp64_mag < 0x7ff0000000000000ULL;
-  if ((errno && !is_ok_subnormal) || *q || q == buffer) {
+  int is_ok_underflow =
+      (errno == ERANGE) && fp64_mag < 0x7ff0000000000000ULL;
+  if ((errno && !is_ok_underflow) || *q || q == buffer) {
     return SETERROR(sp->ebuf, lineno, "error parsing float");
   }
 

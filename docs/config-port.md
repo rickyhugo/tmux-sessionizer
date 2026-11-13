@@ -18,7 +18,12 @@ the override or platform location. Missing files are optional. Extension inferen
 unregistered file extensions, a UTF-8 BOM, and lossy UTF-8 file decoding follow the
 reference's TOML-only config source.
 Optional sources also suppress stat, open, and read failures. Parser and decoder
-failures remain fatal.
+failures remain fatal. A selected but unreadable source does not trigger extension
+inference for another filename.
+
+Serialization rejects unsigned depths above TOML's signed 64-bit range before
+creating the destination directory or replacing the configuration file. Export
+rejects the same values. NaN-to-string coercion produces `NaN` for every TOML sign.
 
 Path expansion supports braced and unbraced variables, literal `${NAME:-fallback}`
 defaults, escaped dollars, and a leading tilde. Empty variables remain empty even
@@ -134,8 +139,40 @@ the native diagnostic. This is not full Rust-parser diagnostic equivalence.
 Full equivalence would require its lexer, recovery rules, and error ordering,
 not only a native-message translation table.
 
-`vendor/tomlc17/README.md` records the one-condition leap-second compatibility
-patch and both upstream and patched source hashes.
+Decoded enum errors retain the enum representation or variant and the field
+index. Short sequence-struct errors retain the Rust struct name, expected element
+count, and nested key. These decoder errors are separate from the native parser
+diagnostic exemption.
+
+`vendor/tomlc17/README.md` records the leap-second, year-zero, and finite-underflow
+compatibility patches and both upstream and patched source hashes.
+
+### Review regressions
+
+Eight additional module tests run through ordinary `zig build test`, without
+Rust. They cover byte-for-byte preservation and successful reload after failed
+serialization, the signed-64 serialization boundary, an unreadable selected
+source with a competing inferred filename, year-zero dates, signed-zero
+underflow, NaN coercion, enum and sequence-struct diagnostics, and shared
+shortcut replacement semantics. The unreadable-source test skips when run as
+root because mode bits cannot make its fixture unreadable.
+
+Each of the seven behavior regressions failed before its corresponding fix.
+The binding-policy test covers the behavior-preserving extraction shared by
+typed TOML decoding and picker default merging.
+
+Review verification on macOS:
+
+- `MISE_AUTO_INSTALL=false mise exec -- zig build test --summary all` passed
+  all build steps: 105 tests passed and eight skipped. All 16 configuration
+  tests passed.
+- The unchanged `src/cli/check.py --dynamic --jj` runner passed against the
+  retained Rust release, including 815 completion probes and 40 jj cases.
+- Supplemental review comparisons passed 25 exports or decoder errors, two
+  byte-preserving failed mutations, unreadable-source selection, and four
+  parser rejection controls.
+- Configuration test artifacts compiled for `x86_64-linux-gnu` and
+  `aarch64-linux-musl`. These are compile-only checks, not Linux runtime tests.
 
 This workstream does not claim the full application, ranking, or terminal suite.
 Those remain integration checks owned by the parent.
