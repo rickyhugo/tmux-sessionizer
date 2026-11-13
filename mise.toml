@@ -1,0 +1,56 @@
+[tools]
+zig = "0.17.1"
+hk = "2.12.0"
+jj = "0.38.0"
+tmux = "3.8"
+python = "3.14.7"
+rust = { version = "1.99.0", components = "rustfmt,clippy" }
+
+[env]
+RUSTUP_TOOLCHAIN = "1.99.0"
+
+[tasks.build]
+description = "Build the Zig executable"
+run = "zig build"
+
+[tasks."build:release"]
+description = "Build zig-out/bin/tms with ReleaseFast"
+run = "zig build -Doptimize=ReleaseFast"
+
+[tasks.test]
+description = "Run Zig tests"
+run = "zig build test"
+
+[tasks."build:rust"]
+description = "Build the Rust reference executable"
+run = "cargo build --locked"
+
+[tasks."test:rust"]
+description = "Run Rust reference tests"
+run = "cargo test --locked"
+
+[tasks.fmt]
+description = "Format Zig and Rust files through hk"
+run = "hk fix --all --step zig-fmt --step rust-fmt"
+
+[tasks."fmt:check"]
+description = "Check Zig and Rust formatting through hk"
+run = "hk check --all --step zig-fmt --step rust-fmt"
+
+[tasks."hooks:setup"]
+description = "Install repository-local hk hooks through mise"
+run = '''
+if [ "$(git rev-parse --git-dir)" != "$(git rev-parse --git-common-dir)" ]; then
+  echo "Install hooks from a standalone clone, not a linked worktree." >&2
+  exit 1
+fi
+hk install --mise
+'''
+
+[tasks.check]
+description = "Run all shared hk checks"
+run = "hk check --all"
+
+[tasks.ci]
+description = "Validate hk and run the shared checks"
+run = ["hk validate --deny-warnings", "hk check --all"]

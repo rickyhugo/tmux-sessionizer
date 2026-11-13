@@ -1,0 +1,34 @@
+amends "package://github.com/jdx/hk/releases/download/v2.12.0/hk@2.12.0#/Config.pkl"
+
+min_hk_version = "2.12.0"
+
+steps {
+  ["hk-config"] {
+    glob = List("hk.pkl", "mise.toml", "mise.lock")
+    check = "hk validate --deny-warnings"
+  }
+  ["zig-fmt"] {
+    glob = "*.zig"
+    check = "zig fmt --check {{files}}"
+    fix = "zig fmt {{files}}"
+  }
+  ["zig-test"] {
+    condition = "exec_ok('test -f build.zig')"
+    check = "mise run test"
+    depends = "zig-fmt"
+  }
+  ["zig-release"] {
+    condition = "exec_ok('test -f build.zig')"
+    check = "mise run build:release"
+    depends = "zig-test"
+  }
+  ["rust-fmt"] {
+    glob = List("*.rs", "Cargo.toml", "rust-toolchain.toml")
+    check = "cargo fmt --all -- --check"
+    fix = "cargo fmt --all"
+  }
+  ["rust-test"] {
+    check = "mise run test:rust"
+    depends = "rust-fmt"
+  }
+}
