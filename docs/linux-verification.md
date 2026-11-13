@@ -4,6 +4,47 @@ This report checks the behavior-preserving Zig rewrite on native Linux.
 The run uses real Git, jj, tmux, PTYs, and a second filesystem.
 It does not change compatibility goldens or test assertions.
 
+## Review-fix process verification
+
+The full repaired source at `6a16a34` passed all 13 verification steps in
+`/work-review-final`. It used `git archive`, the pinned toolchain, and the
+unprivileged `verifier` account. Results:
+
+- 131 module tests passed; eight expected skips.
+- 29 process tests passed; three Darwin-only skips. Both real cross-device
+  fixtures passed with xattrs required.
+- 32 harness/packaging tests, 56 CLI diagnostic cases, 45 completion cases,
+  and 35 repository/session scenarios passed.
+- 42 stored command cases, 25 ranking vectors, 21 strict PTY/popup scenarios,
+  and 16 focused picker scenarios passed.
+
+Evidence: `.audit/linux-review-final.log` and the container's
+`/work-review-final/.audit/linux-review-final`.
+Executable SHA-256:
+`c3c83998b75d9fa92350964cbc69fe780f4582b1772bedbd7ba6cb780ca20674`.
+
+The process changes at `05adc93` passed in `/work-review-process` in the
+native aarch64 Ubuntu container. The source was transferred with `git archive`
+and tested as the unprivileged `verifier` user with pinned Zig 0.17.1.
+
+All 24 applicable process tests passed; three Darwin-only cases skipped.
+Both actual cross-device fixtures passed with xattr support required.
+The new checks cover closed stdin, descriptor flags, setup-failure rollback,
+allocation failure with remapping allocators, and cancellation with child reaping.
+Evidence: `.audit/review-process-linux.log`.
+
+The follow-up at `1daa7c9` also passed in `/work-review-process-kill`:
+29 tests passed and three Darwin-only cases skipped. This run includes
+SIGTERM-resistant child cleanup after allocation failure, capture cancellation,
+EOF wait cancellation, and inherited-stream cancellation. Both cross-device
+fixtures still passed with xattr support required.
+Evidence: `.audit/review-process-kill-linux.log`.
+
+The earlier hosted x86_64 Nix failure exposed a fault-injection defect:
+successful remaps bypassed the allocator's allocation-failure counter.
+The repaired injector disables resize/remap, and infinite-output helpers have
+timeouts. Native x86_64 execution of the repair remains a hosted-check gate.
+
 ## Final integration verification
 
 The coordinator reran `scripts/linux-check.sh` against `3ad4fda` in

@@ -7,15 +7,23 @@ The reference is commit `a91ea21780acb58eced5b7f52da7f212f6ca33f0`.
 ## Current status
 
 The Zig implementation, packaging switch, and Rust retirement are integrated.
-Shared local checks pass on Apple Silicon. Native aarch64 Linux passes all
-command, ranking, terminal, and picker checks, including real cross-device
-metadata preservation. All four release archives build and validate.
-A native aarch64 Nix package builds in a real sandbox with fallback disabled.
+Shared local checks pass on Apple Silicon. The reviewed source at `6a16a34`
+passes all 13 native aarch64 Linux verification steps, including real
+cross-device metadata preservation. All four release archives build and
+validate with 15 exact notices. Source installation with a spaced prefix passes.
 
-Hosted workflows, the other three native Nix builds, and native Intel/x86-64
-archive execution remain unexecuted locally. Final independent Sol-high review
-is blocked by that model's usage limit. No substitute review model was used.
-Nothing has been pushed, tagged, or released.
+Commit `32c24bc` was pushed to `main`. Six Sol-high review slices completed
+against the Rust reference and found 19 spec findings, one documented I/O
+contract mismatch, and two maintainability concerns. Their fixes and additional
+targeted review repairs are integrated with regression tests.
+
+Hosted Nix builds passed on both macOS architectures and aarch64 Linux.
+The original x86_64 Linux job failed when the allocation-failure pipe test was
+killed after hanging. Its fault injector is repaired and bounded. The original
+CI run was cancelled after diagnosis. Hosted verification of the repaired
+revision remains open.
+Native Intel/x86-64 release-archive execution remains open.
+Nothing has been tagged or released.
 
 ## Completion checks
 
@@ -142,9 +150,44 @@ Linux container; it is not installed on the macOS host.
 
 The coordinator reviewed and finished the interrupted picker and move work.
 Repository provenance had already passed independent review.
-The requested Sol workers exhausted their allowance before final review of the
-config, bounded-picker, move-finalization, and packaging changes.
-That independent-review gate remains open.
+The requested Sol workers initially exhausted their allowance. A subsequent
+six-slice Sol-high review completed on `32c24bc`. Its findings are tracked in
+the review-fix work; the earlier passing suites did not cover these edge cases.
+
+### Review repairs
+
+- `4c65d85` restores CSI-u press events, shifted Tab, keypad Enter, and
+  Linux-console function keys. All 16 focused PTY scenarios pass.
+- `7475a25` and `eb3b714` protect persisted configuration from serialization
+  overflow, preserve source selection, timestamps and float coercion, restore
+  decoder diagnostics, and accept unused sequence tails. Binding replacement
+  has one configuration-owned implementation.
+- `c1e9458` and `ccab1d0` restore CLI UTF-8 validation, diagnostic context,
+  suggestions, and short-option completion. Shared checks run 56 diagnostic/
+  preservation cases and 45 completion cases without requiring Rust.
+- `05adc93` restores stdin state and bounds output fault injection.
+  `1daa7c9` force-kills and reaps aborted children, including children that
+  ignore SIGTERM. Native Linux passes all 29 applicable process tests.
+- `975b899` and `6a16a34` preserve repository initialization policy and literal
+  session names. All 35 executable regression scenarios pass on macOS and Linux.
+  Initialization phases and branch policy are documented in `src/repos/init.md`.
+- `af4b05c` adds an explicit required-notice manifest and independent package
+  tests, refreshes the developer guide, and documents the narrow synchronous
+  native-backend exception to the explicit `Io` contract.
+- The shared checks include packaging, CLI, and repository regressions.
+  `scripts/linux-check.sh` runs these checks too.
+
+Evidence at `6a16a34`: `.audit/review-final-ci.log`,
+`.audit/linux-review-final.log`, `.audit/review-final-archives.log`, and
+`.audit/review-final-install.log`. Native Linux reports 131 module tests passed
+with eight expected skips, 42 stored command cases, 25 ranking vectors,
+21 strict terminal scenarios, and 16 focused picker scenarios.
+The benchmark verdict remains inconclusive; these repairs claim no speedup.
+Targeted independent Sol-high closure reviews passed for picker/packaging,
+CLI, process cleanup, and repository initialization. Configuration review
+verified the original repairs and found the trailing-sequence case, which
+`eb3b714` fixes with 34 differential comparisons and normal module regressions.
+No cross-family review was requested or substituted.
 
 ## Decisions
 

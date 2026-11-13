@@ -153,6 +153,13 @@ The review-fix rerun rebuilt all four archives and independently compared all
 14 notice files with their source bytes. Apple Silicon passed native archive
 execution and a real source installation with a spaced prefix. All ten
 packaging policy tests passed, including the missing-Unicode-notice regression.
+
+After integrating the repository templates, `6a16a34` rebuilt all four
+archives and passed native Apple Silicon smoke. An independent policy check
+compared all 15 notice files byte-for-byte in every archive, including
+`src/repos/template/LICENSE`. Source installation with a spaced prefix also
+passed exact executable and notice comparisons. Evidence:
+`.audit/review-final-archives.log` and `.audit/review-final-install.log`.
 This rerun did not execute the other native targets or rebuild Nix packages.
 
 The packaging implementation's earlier negative checks rejected altered

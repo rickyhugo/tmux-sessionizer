@@ -37,6 +37,10 @@ redirects (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`, and
 templates; their provenance and MIT notice live in `src/repos/template`.
 The configured initial branch is retained, with the reference's `main`
 fallback. Git exit status is checked.
+Creation uses isolated settings before reading reference configuration and
+validating the branch. Invalid configuration or branch names retain the
+reference's completed fallback layout. See `src/repos/init.md` for phase order,
+configuration-source rules, and branch validation.
 
 ## jj
 
