@@ -269,6 +269,15 @@ test "native move crosses devices when a writable second filesystem is available
     const to = try std.fs.path.join(a, &.{ second_root, unique });
     defer a.free(to);
     defer second.deleteTree(io, unique) catch {};
+    second.createDir(io, unique, .default_dir) catch return error.SkipZigTest;
+    const second_path = try a.dupeSentinel(u8, to, 0);
+    defer a.free(second_path);
+    const root_path = try a.dupeSentinel(u8, root, 0);
+    defer a.free(root_path);
+    const Metadata = @import("move.zig").Metadata;
+    if ((try Metadata.read(root_path)).device == (try Metadata.read(second_path)).device)
+        return error.SkipZigTest;
+    try second.deleteDir(io, unique);
     try temp.dir.createDir(io, "source", .default_dir);
     try temp.dir.writeFile(io, .{ .sub_path = "source/file", .data = "cross device" });
     try temp.dir.symLink(io, "file", "source/link", .{});
@@ -334,6 +343,14 @@ pub fn checkCopyFallback(move: anytype) !void {
     try move(io, a, from, to);
     const moved_len = try temp.dir.readLink(io, "target", &link_buffer);
     try t.expectEqualStrings("missing target", link_buffer[0..moved_len]);
+
+    try temp.dir.deleteFile(io, "target");
+    try temp.dir.writeFile(io, .{ .sub_path = "outside", .data = "untouched" });
+    try temp.dir.symLink(io, "outside", "target", .{});
+    try temp.dir.writeFile(io, .{ .sub_path = "source", .data = "replacement" });
+    try move(io, a, from, to);
+    try expectFile(temp.dir, "target", "replacement");
+    try expectFile(temp.dir, "outside", "untouched");
 }
 
 fn expectFile(dir: std.Io.Dir, path: []const u8, expected: []const u8) !void {

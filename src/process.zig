@@ -131,64 +131,32 @@ fn moveAcrossDevices(io: Io, a: A, from: []const u8, to: []const u8) anyerror!vo
                 (std.mem.endsWith(u8, source_path, "/") or parent_path[source_path.len] == '/')))
             return error.InvalidDestination;
     }
-    try copyAcrossDevices(io, a, from, to);
-    try dir.deleteTree(io, from);
-}
-
-fn copyAcrossDevices(io: Io, a: A, from: []const u8, to: []const u8) anyerror!void {
-    const dir = Io.Dir.cwd();
-    const source = try dir.statFile(io, from, .{ .follow_symlinks = false });
-    switch (source.kind) {
-        .file => {
-            try dir.copyFile(from, dir, to, io, .{});
-            const file = try dir.openFile(io, to, .{});
-            defer file.close(io);
-            try file.setTimestamps(io, .{
-                .access_timestamp = .init(source.atime),
-                .modify_timestamp = .{ .new = source.mtime },
-            });
-        },
-        .sym_link => {
-            var link_buffer: [std.fs.max_path_bytes]u8 = undefined;
-            const len = try dir.readLink(io, from, &link_buffer);
-            dir.deleteFile(io, to) catch |err| switch (err) {
-                error.FileNotFound => {},
-                else => return err,
+    var context: @import("process/move.zig").CopyContext = .init(a);
+    defer context.deinit();
+    const allocator = context.arena.allocator();
+    const staging = try std.fmt.allocPrintSentinel(allocator, "{s}/.tms-move-XXXXXX", .{
+        std.fs.path.dirname(to) orelse ".",
+    }, 0);
+    const native = @import("process/move.zig").native;
+    if (native.mkdtemp(staging) == null) return error.CreateStagingFailed;
+    defer dir.deleteTree(io, staging) catch {};
+    if (@import("builtin").os.tag == .macos) {
+        const acl = native.acl_init(0) orelse return error.CreateAclFailed;
+        defer _ = native.acl_free(acl);
+        if (native.acl_set_file(staging, native.ACL_TYPE_EXTENDED, acl) != 0) return error.SetAclFailed;
+    } else {
+        for ([_][:0]const u8{ "system.posix_acl_access", "system.posix_acl_default" }) |name| {
+            if (native.lremovexattr(staging, name) != 0) switch (std.c.errno(@as(c_int, -1))) {
+                .NODATA, .OPNOTSUPP => {},
+                else => return error.SetAclFailed,
             };
-            try dir.symLink(io, link_buffer[0..len], to, .{});
-            try dir.setTimestamps(io, to, .{
-                .follow_symlinks = false,
-                .access_timestamp = .init(source.atime),
-                .modify_timestamp = .{ .new = source.mtime },
-            });
-        },
-        .directory => {
-            // Cross-device mv replaces an empty directory, but never merges trees.
-            dir.deleteDir(io, to) catch |err| switch (err) {
-                error.FileNotFound => {},
-                else => return err,
-            };
-            try dir.createDir(io, to, .default_dir);
-            var input = try dir.openDir(io, from, .{ .iterate = true });
-            defer input.close(io);
-            var iterator = input.iterate();
-            while (try iterator.next(io)) |entry| {
-                const source_path = try std.fs.path.join(a, &.{ from, entry.name });
-                defer a.free(source_path);
-                const destination_path = try std.fs.path.join(a, &.{ to, entry.name });
-                defer a.free(destination_path);
-                try copyAcrossDevices(io, a, source_path, destination_path);
-            }
-            var output = try dir.openDir(io, to, .{ .iterate = true });
-            defer output.close(io);
-            try output.setPermissions(io, source.permissions);
-            try dir.setTimestamps(io, to, .{
-                .access_timestamp = .init(source.atime),
-                .modify_timestamp = .{ .new = source.mtime },
-            });
-        },
-        else => return error.UnsupportedFileType,
+        }
     }
+    if (native.chmod(staging, 0o700) != 0) return error.SetPermissionsFailed;
+    const item = try std.fs.path.join(allocator, &.{ staging, "item" });
+    try context.copy(io, from, item);
+    try dir.rename(item, dir, to, io);
+    try dir.deleteTree(io, from);
 }
 
 test {
@@ -197,4 +165,12 @@ test {
 
 test "cross-device fallback copies before removing and does not merge" {
     try @import("process/tests.zig").checkCopyFallback(moveAcrossDevices);
+}
+
+test "cross-device fallback preserves native metadata and hardlinks" {
+    try @import("process/move_tests.zig").checkPreservation(moveAcrossDevices);
+}
+
+test "cross-device fallback keeps failed copies private and retryable" {
+    try @import("process/move_tests.zig").checkFailure(moveAcrossDevices);
 }
