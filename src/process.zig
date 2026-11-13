@@ -28,7 +28,7 @@ pub fn capture(io: Io, a: A, request: Request) anyerror!Output {
         .stdout = .pipe,
         .stderr = .pipe,
     });
-    defer child.kill(io);
+    defer abortChild(io, &child);
 
     var buffer: Io.File.MultiReader.Buffer(2) = undefined;
     var reader: Io.File.MultiReader = undefined;
@@ -42,7 +42,7 @@ pub fn capture(io: Io, a: A, request: Request) anyerror!Output {
         else => return err,
     }
     try reader.checkAnyError();
-    const term = try child.wait(io);
+    const term = try waitOwnedChild(io, &child);
     const stdout = try reader.toOwnedSlice(0);
     errdefer a.free(stdout);
     const stderr = try reader.toOwnedSlice(1);
@@ -60,8 +60,30 @@ pub fn inherit(io: Io, request: Request) anyerror!std.process.Child.Term {
             .ignore => .ignore,
         },
     });
-    defer child.kill(io);
+    defer abortChild(io, &child);
+    return try waitOwnedChild(io, &child);
+}
+
+fn waitOwnedChild(io: Io, child: *std.process.Child) !std.process.Child.Term {
+    const pid = child.id.?;
+    // Zig 0.17 closes streams and clears id even when wait is canceled before
+    // reaping. Keep ownership of that PID for the caller's abort cleanup.
+    errdefer child.id = pid;
     return try child.wait(io);
+}
+
+fn abortChild(io: Io, child: *std.process.Child) void {
+    const pid = child.id orelse return; // A successful wait already reaped it.
+    const protection = io.swapCancelProtection(.blocked);
+    defer _ = io.swapCancelProtection(protection);
+    // Child.kill sends TERM and waits indefinitely in Zig 0.17. Abort must not
+    // depend on the child's signal handlers or ability to drain its output.
+    while (std.c.kill(pid, .KILL) != 0) {
+        if (std.c.errno(@as(c_int, -1)) != .INTR) break;
+    }
+    // ESRCH can mean the child exited before signaling; still collect its
+    // status. wait also closes any remaining streams. Preserve the caller error.
+    _ = child.wait(io) catch {};
 }
 
 pub fn replace(io: Io, request: Request) anyerror!noreturn {

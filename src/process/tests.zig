@@ -16,8 +16,12 @@ fn childHelper() !void {
     defer env.deinit();
     const mode = env.get("TMS_PROCESS_HELPER") orelse return;
     const path = env.get("TMS_PROCESS_CWD").?;
-    if (std.mem.eql(u8, mode, "allocation-failure")) try checkOutputAllocationFailures(path);
-    if (std.mem.eql(u8, mode, "cancel")) try checkCaptureCancellation(path);
+    if (std.mem.eql(u8, mode, "allocation-failure")) try checkOutputAllocationFailures(path, false);
+    if (std.mem.eql(u8, mode, "term-oom")) try checkOutputAllocationFailures(path, true);
+    if (std.mem.eql(u8, mode, "cancel")) try checkCaptureCancellation(path, .capture, false);
+    if (std.mem.eql(u8, mode, "term-cancel")) try checkCaptureCancellation(path, .capture, true);
+    if (std.mem.eql(u8, mode, "term-wait")) try checkCaptureCancellation(path, .capture_wait, true);
+    if (std.mem.eql(u8, mode, "term-inherit")) try checkCaptureCancellation(path, .inherit, true);
     if (std.mem.startsWith(u8, mode, "quota-")) try checkReplacementSetupFailure(mode);
     const ignored = std.mem.endsWith(u8, mode, "ignore");
     const request: process.Request = .{
@@ -147,16 +151,21 @@ test "allocation failure while a child fills both pipes does not hang" {
     try checkHelper("allocation-failure", false);
 }
 
+test "capture OOM cleanup reaps a child ignoring TERM" {
+    try checkHelper("term-oom", false);
+}
+
 fn outputFailingAllocator(backing: std.mem.Allocator, index: usize) t.FailingAllocator {
     // Successful remaps do not advance fail_index. Force growth through alloc,
     // otherwise Linux mremap can keep the infinite-output fixture alive.
     return .init(backing, .{ .fail_index = index, .resize_fail_index = 0 });
 }
 
-fn checkOutputAllocationFailures(path: []const u8) !void {
+fn checkOutputAllocationFailures(path: []const u8, ignore_term: bool) !void {
     const pid_path = try std.fs.path.join(a, &.{ path, "allocation.pid" });
     defer a.free(pid_path);
-    for (0..8) |index| {
+    const first: usize = if (ignore_term) 2 else 0;
+    for (first..8) |index| {
         std.Io.Dir.cwd().deleteFile(io, pid_path) catch |err| switch (err) {
             error.FileNotFound => {},
             else => return err,
@@ -165,11 +174,14 @@ fn checkOutputAllocationFailures(path: []const u8) !void {
         const output = process.capture(io, failing.allocator(), .{
             .argv = &.{
                 "/bin/sh", "-c",
+                \\if [ "$1" = ignore ]; then trap '' TERM; fi
                 \\printf '%s\n' $$ > allocation.pid
                 \\while :; do
                 \\printf '0123456789012345678901234567890123456789012345678901234567890123456789'
                 \\printf '0123456789012345678901234567890123456789012345678901234567890123456789' >&2
                 \\done
+                ,
+                "fixture", if (ignore_term) "ignore" else "default",
             },
             .stdin = .ignore,
             .cwd = path,
@@ -190,19 +202,49 @@ test "capture cancellation kills and reaps a child filling both pipes" {
     try checkHelper("cancel", false);
 }
 
+test "capture cancellation reaps a child ignoring TERM" {
+    try checkHelper("term-cancel", false);
+}
+
+test "capture wait cancellation reaps a child ignoring TERM after pipe EOF" {
+    try checkHelper("term-wait", false);
+}
+
+test "inherit cancellation reaps a child ignoring TERM" {
+    try checkHelper("term-inherit", false);
+}
+
+const CancellationMode = enum { capture, capture_wait, inherit };
+
 const CaptureCancellation = struct {
     canceled: bool = false,
+    mode: CancellationMode,
+    ignore_term: bool,
 
     fn run(self: *CaptureCancellation, path: []const u8) void {
-        const output = process.capture(io, a, .{
+        const request: process.Request = .{
             .argv = &.{
-                "/bin/sh", "-c",
+                "/bin/sh",           "-c",
+                \\if [ "$1" = ignore ]; then trap '' TERM; fi
                 \\printf '%s\n' $$ > capture.pid
+                \\if [ "$2" = capture_wait ]; then exec 1>&- 2>&-; fi
+                \\if [ "$2" != capture ]; then while :; do :; done; fi
                 \\while :; do printf 'stdout'; printf 'stderr' >&2; done
+                ,
+                "fixture",           if (self.ignore_term) "ignore" else "default",
+                @tagName(self.mode),
             },
             .cwd = path,
             .stdin = .ignore,
-        }) catch |err| {
+        };
+        if (self.mode == .inherit) {
+            _ = process.inherit(io, request) catch |err| {
+                self.canceled = err == error.Canceled;
+                return;
+            };
+            return;
+        }
+        const output = process.capture(io, a, request) catch |err| {
             self.canceled = err == error.Canceled;
             return;
         };
@@ -210,10 +252,10 @@ const CaptureCancellation = struct {
     }
 };
 
-fn checkCaptureCancellation(path: []const u8) !void {
+fn checkCaptureCancellation(path: []const u8, mode: CancellationMode, ignore_term: bool) !void {
     const pid_path = try std.fs.path.join(a, &.{ path, "capture.pid" });
     defer a.free(pid_path);
-    var state: CaptureCancellation = .{};
+    var state: CaptureCancellation = .{ .mode = mode, .ignore_term = ignore_term };
     var group: std.Io.Group = .init;
     defer group.cancel(io);
     try group.concurrent(io, CaptureCancellation.run, .{ &state, path });
@@ -299,6 +341,17 @@ test "capture and inherit preserve stdin cwd and environment" {
     try checkHelper("capture-ignore", true);
     try checkHelper("inherit", false);
     try checkHelper("inherit-ignore", true);
+}
+
+test "inherit retains successful nonzero and signal termination data" {
+    const successful = try process.inherit(io, .{ .argv = &.{ "/bin/sh", "-c", "exit 0" }, .stdin = .ignore });
+    try t.expect(successful.success());
+    const nonzero = try process.inherit(io, .{ .argv = &.{ "/bin/sh", "-c", "exit 23" }, .stdin = .ignore });
+    try t.expect(nonzero == .exited);
+    try t.expectEqual(@as(u8, 23), nonzero.exited);
+    const signaled = try process.inherit(io, .{ .argv = &.{ "/bin/sh", "-c", "kill -TERM $$" }, .stdin = .ignore });
+    try t.expect(signaled == .signal);
+    try t.expectEqual(std.posix.SIG.TERM, signaled.signal);
 }
 
 test "replace preserves PID streams cwd environment and stdin mode" {
@@ -440,17 +493,29 @@ fn checkHelper(mode: []const u8, ignored: bool) !void {
         .stderr = .pipe,
     });
     defer child.kill(io);
+    var finished = false;
+    defer if (!finished) {
+        // A failed regression must not leave its TERM-resistant fixture alive.
+        for ([_][]const u8{ "allocation.pid", "capture.pid" }) |name| {
+            const pid_path = std.fs.path.join(a, &.{ path, name }) catch continue;
+            defer a.free(pid_path);
+            const pid = readPid(pid_path) catch continue;
+            _ = std.c.kill(pid, .KILL);
+        }
+    };
     var buffer: std.Io.File.MultiReader.Buffer(2) = undefined;
     var reader: std.Io.File.MultiReader = undefined;
     reader.init(a, io, buffer.toStreams(), &.{ child.stdout.?, child.stderr.? });
     defer reader.deinit();
-    try reader.fillRemaining(.{ .duration = .{ .clock = .awake, .raw = .fromSeconds(15) } });
+    const timeout_seconds: i64 = if (std.mem.startsWith(u8, mode, "term-")) 3 else 15;
+    try reader.fillRemaining(.{ .duration = .{ .clock = .awake, .raw = .fromSeconds(timeout_seconds) } });
     try reader.checkAnyError();
     const term = try child.wait(io);
     if (!term.success() and !(term == .exited and term.exited == 37))
         std.debug.print("child helper {s}: {t}\n{s}", .{ mode, term, reader.reader(1).buffered() });
     try t.expect(term == .exited);
     try t.expectEqual(@as(u8, 37), term.exited);
+    finished = true;
     var stdout = reader.reader(0).buffered();
     if (std.mem.startsWith(u8, mode, "replace")) {
         const first = std.mem.findScalar(u8, stdout, '\n').?;
