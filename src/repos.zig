@@ -6,10 +6,14 @@ const A = std.mem.Allocator;
 const Io = std.Io;
 
 pub const Provider = config.VcsProvider;
-pub const RepoRef = struct { path: []const u8, provider: Provider };
+pub const RepoRef = struct {
+    path: []const u8,
+    provider: Provider,
+    git_metadata: ?[]const u8 = null,
+};
 pub const Search = struct {
     roots: []const config.SearchDirectory,
-    excluded: []const []const u8,
+    excluded: ?[]const []const u8,
     providers: []const Provider,
 };
 pub const Resolved = struct {
@@ -30,12 +34,14 @@ pub fn discover(io: Io, a: A, search: Search) anyerror![]const RepoRef {
     var next: usize = 0;
     while (next < queue.items.len) : (next += 1) {
         const current = queue.items[next];
-        if (search.excluded.len != 0 and !std.unicode.utf8ValidateSlice(current.path)) return error.NonUtf8Path;
         var excluded = false;
-        for (search.excluded) |pattern| {
-            if (std.mem.indexOf(u8, current.path, pattern) != null) {
-                excluded = true;
-                break;
+        if (search.excluded) |patterns| {
+            if (!std.unicode.utf8ValidateSlice(current.path)) return error.NonUtf8Path;
+            for (patterns) |pattern| {
+                if (std.mem.indexOf(u8, current.path, pattern) != null) {
+                    excluded = true;
+                    break;
+                }
             }
         }
         if (excluded) continue;
@@ -95,7 +101,10 @@ pub fn detect(io: Io, path: []const u8, providers: []const Provider) anyerror!?R
 pub fn resolve(io: Io, a: A, ref: RepoRef) anyerror!Resolved {
     switch (ref.provider) {
         .git => {
-            const metadata = try gitMetadata(io, a, ref.path);
+            const metadata = if (ref.git_metadata) |hint|
+                try Io.Dir.cwd().realPathFileAlloc(io, hint, a)
+            else
+                try gitMetadata(io, a, ref.path);
             const common = try gitCommonDirectory(io, a, metadata);
             const common_config = try std.fs.path.join(a, &.{ common, "config" });
             const configured_bare = try process.capture(io, a, .{
@@ -245,13 +254,20 @@ fn appendSubmodules(io: Io, a: A, repo: Resolved, prefix: []const u8, recursive:
     const modules = try moduleConfig(io, a, repo);
     for (modules) |module| {
         const path = try std.fs.path.resolve(a, &.{ repo.cwd, module.path });
-        const sub: RepoRef = .{ .path = path, .provider = .git };
+        const dotgit = try std.fs.path.join(a, &.{ path, ".git" });
+        const sub: RepoRef = .{
+            .path = path,
+            .provider = .git,
+            .git_metadata = if (exists(io, dotgit)) null else try std.fs.path.join(a, &.{
+                try gitCommonDirectory(io, a, repo.metadata), "modules", module.name,
+            }),
+        };
         const opened = resolve(io, a, sub) catch continue;
         if (opened.bare) continue;
         const basename = std.fs.path.basename(opened.cwd);
         const name = if (prefix.len == 0) basename else try std.fmt.allocPrint(a, "{s}>{s}", .{ prefix, basename });
         if (recursive) appendSubmodules(io, a, opened, name, true, result) catch {};
-        try result.append(a, .{ .name = name, .ref = .{ .path = opened.cwd, .provider = .git } });
+        try result.append(a, .{ .name = name, .ref = .{ .path = opened.cwd, .provider = .git, .git_metadata = opened.metadata } });
     }
 }
 
@@ -263,7 +279,7 @@ fn gitMetadata(io: Io, a: A, path: []const u8) ![]const u8 {
     } else if (exists(io, dotgit)) dotgit else blk: {
         const head = try std.fs.path.join(a, &.{ path, "HEAD" });
         if (isFile(io, head)) break :blk path;
-        break :blk try submoduleMetadata(io, a, path);
+        return error.GitError;
     };
     return Io.Dir.cwd().realPathFileAlloc(io, metadata, a);
 }
@@ -300,34 +316,6 @@ fn moduleConfig(io: Io, a: A, repo: Resolved) ![]const parsers.Module {
         return error.GitError;
     }
     return parsers.submoduleEntries(a, output.stdout);
-}
-
-fn submoduleMetadata(io: Io, a: A, path: []const u8) ![]const u8 {
-    const absolute = try std.fs.path.resolve(a, &.{path});
-    var parent = std.fs.path.dirname(absolute);
-    while (parent) |candidate| : (parent = std.fs.path.dirname(candidate)) {
-        if ((try detect(io, candidate, &.{.git})) == null) continue;
-        const repo = try resolve(io, a, .{ .path = candidate, .provider = .git });
-        return (try registeredSubmoduleMetadata(io, a, repo, absolute)) orelse error.GitError;
-    }
-    return error.GitError;
-}
-
-fn registeredSubmoduleMetadata(io: Io, a: A, repo: Resolved, path: []const u8) anyerror!?[]const u8 {
-    const modules = try moduleConfig(io, a, repo);
-    for (modules) |module| {
-        const checkout = try std.fs.path.resolve(a, &.{ repo.cwd, module.path });
-        const exact = std.mem.eql(u8, checkout, path);
-        const nested = std.mem.startsWith(u8, path, checkout) and
-            path.len > checkout.len and path[checkout.len] == std.fs.path.sep;
-        if (!exact and !nested) continue;
-        const common = try gitCommonDirectory(io, a, repo.metadata);
-        const metadata = try std.fs.path.join(a, &.{ common, "modules", module.name });
-        if (exact) return metadata;
-        const child = resolve(io, a, .{ .path = metadata, .provider = .git }) catch continue;
-        if (try registeredSubmoduleMetadata(io, a, child, path)) |found| return found;
-    }
-    return null;
 }
 
 fn gitCommonDirectory(io: Io, a: A, metadata: []const u8) ![]const u8 {

@@ -12,10 +12,12 @@ test "discovery checks depth zero and stops at shallow markers without resolutio
     defer arena.deinit();
     const a = arena.allocator();
     const root = try tmp.dir.realPathFileAlloc(io, "root", a);
-    for ([_]usize{ 0, 3 }) |depth| {
-        const found = try repos.discover(io, a, .{ .roots = &.{.{ .path = root, .depth = depth }}, .excluded = &.{}, .providers = &.{.git} });
-        try std.testing.expectEqual(@as(usize, 1), found.len);
-        try std.testing.expectEqualStrings(root, found[0].path);
+    for ([_]?[]const []const u8{ null, &.{} }) |excluded| {
+        for ([_]usize{ 0, 3 }) |depth| {
+            const found = try repos.discover(io, a, .{ .roots = &.{.{ .path = root, .depth = depth }}, .excluded = excluded, .providers = &.{.git} });
+            try std.testing.expectEqual(@as(usize, 1), found.len);
+            try std.testing.expectEqualStrings(root, found[0].path);
+        }
     }
 }
 
@@ -31,7 +33,7 @@ test "discovery is breadth first and follows encountered symlink spelling with b
     defer arena.deinit();
     const a = arena.allocator();
     const root = try tmp.dir.realPathFileAlloc(io, "root", a);
-    const found = try repos.discover(io, a, .{ .roots = &.{.{ .path = root, .depth = 2 }}, .excluded = &.{}, .providers = &.{.git} });
+    const found = try repos.discover(io, a, .{ .roots = &.{.{ .path = root, .depth = 2 }}, .excluded = null, .providers = &.{.git} });
     try std.testing.expectEqual(@as(usize, 5), found.len);
     try std.testing.expect(std.mem.endsWith(u8, found[0].path, "/first") or std.mem.endsWith(u8, found[0].path, "/alias"));
     var alias = false;
@@ -57,6 +59,21 @@ test "exclusions match whole paths literally and case sensitively including empt
     }
     const found = try repos.discover(io, a, .{ .roots = &.{.{ .path = root, .depth = 2 }}, .excluded = &.{"KEEP"}, .providers = &.{.git} });
     try std.testing.expectEqual(@as(usize, 1), found.len);
+}
+
+test "discovery preserves absent versus empty exclusion validation without filesystem access" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var search: repos.Search = .{
+        .roots = &.{.{ .path = "\xff", .depth = 0 }},
+        .excluded = null,
+        .providers = &.{},
+    };
+    try std.testing.expectEqual(@as(usize, 0), (try repos.discover(io, arena.allocator(), search)).len);
+    search.excluded = &.{};
+    try std.testing.expectError(error.NonUtf8Path, repos.discover(io, arena.allocator(), search));
+    search.excluded = &.{"unmatched"};
+    try std.testing.expectError(error.NonUtf8Path, repos.discover(io, arena.allocator(), search));
 }
 
 test "provider order wins shallow detection and empty providers detect nothing" {
@@ -176,7 +193,7 @@ test "real git linked checkouts are discovered separately and names use administ
     try std.testing.expectEqualStrings(linked, from_linked[0].path);
     const found = try repos.discover(io, f.a(), .{
         .roots = &.{.{ .path = f.root, .depth = 2 }},
-        .excluded = &.{},
+        .excluded = null,
         .providers = &.{.git},
     });
     try std.testing.expectEqual(@as(usize, 2), found.len);
@@ -473,6 +490,39 @@ test "real git deleted submodule checkout retains its configured workdir and nes
     try std.testing.expectEqualStrings(recursive[0].ref.path, (try repos.resolve(io, f.a(), recursive[0].ref)).cwd);
 }
 
+test "real git registered submodules retain ownership across unrelated ancestor repositories" {
+    var f = try Fixture.init();
+    defer f.deinit();
+    const leaf = try f.repo("leaf");
+    const source = try f.repo("source");
+    try f.git(source.path, &.{ "submodule", "add", "--name", "registered-leaf", leaf.path, "nested/leaf" });
+    try f.git(source.path, &.{ "commit", "--quiet", "-am", "leaf" });
+    const parent = try f.repo("parent");
+    try f.git(parent.path, &.{ "submodule", "add", "--name", "registered-child", source.path, "vendor/child" });
+    try f.git(parent.path, &.{ "commit", "--quiet", "-am", "child" });
+    try f.git(parent.path, &.{ "submodule", "update", "--init", "--recursive" });
+    try f.tmp.dir.deleteTree(io, "parent/vendor/child");
+    _ = try f.repo("parent/vendor");
+
+    const direct = try repos.submodules(io, f.a(), parent, false);
+    try std.testing.expectEqual(@as(usize, 1), direct.len);
+    const opened = try repos.resolve(io, f.a(), direct[0].ref);
+    try std.testing.expectEqualStrings(try f.path("parent/vendor/child"), opened.cwd);
+    try std.testing.expectEqualStrings(try f.path("parent/.git/modules/registered-child"), opened.metadata);
+
+    const nested = try repos.submodules(io, f.a(), direct[0].ref, false);
+    try std.testing.expectEqual(@as(usize, 1), nested.len);
+    const nested_opened = try repos.resolve(io, f.a(), nested[0].ref);
+    try std.testing.expectEqualStrings(try f.path("parent/vendor/child/nested/leaf"), nested_opened.cwd);
+    try std.testing.expectEqualStrings(try f.path("parent/.git/modules/registered-child/modules/registered-leaf"), nested_opened.metadata);
+
+    const recursive = try repos.submodules(io, f.a(), parent, true);
+    try std.testing.expectEqual(@as(usize, 2), recursive.len);
+    try std.testing.expectEqualStrings("child>leaf", recursive[0].name);
+    try std.testing.expectEqualStrings(nested_opened.cwd, (try repos.resolve(io, f.a(), recursive[0].ref)).cwd);
+    try std.testing.expectEqualStrings("child", recursive[1].name);
+}
+
 test "real git symlinked modules file uses index then HEAD instead of its target" {
     var f = try Fixture.init();
     defer f.deinit();
@@ -497,12 +547,14 @@ test "discovery requires UTF8 at exclusions and repository names not ordinary qu
     const invalid = try f.path("\xff");
     const search: repos.Search = .{
         .roots = &.{ .{ .path = invalid, .depth = 1 }, .{ .path = try f.path("valid"), .depth = 1 } },
-        .excluded = &.{},
+        .excluded = null,
         .providers = &.{.git},
     };
     const found = try repos.discover(io, f.a(), search);
     try std.testing.expectEqual(@as(usize, 1), found.len);
     var excluded = search;
+    excluded.excluded = &.{};
+    try std.testing.expectError(error.NonUtf8Path, repos.discover(io, f.a(), excluded));
     excluded.excluded = &.{"unmatched"};
     try std.testing.expectError(error.NonUtf8Path, repos.discover(io, f.a(), excluded));
 }
@@ -517,20 +569,22 @@ test "discovery ignores a non UTF8 ordinary filename" {
     };
     const found = try repos.discover(io, f.a(), .{
         .roots = &.{.{ .path = f.root, .depth = 2 }},
-        .excluded = &.{},
+        .excluded = null,
         .providers = &.{.git},
     });
     try std.testing.expectEqual(@as(usize, 1), found.len);
-    try std.testing.expectError(error.NonUtf8Path, repos.discover(io, f.a(), .{
-        .roots = &.{.{ .path = f.root, .depth = 2 }},
-        .excluded = &.{"unmatched"},
-        .providers = &.{.git},
-    }));
+    for ([_][]const []const u8{ &.{}, &.{"unmatched"} }) |excluded| {
+        try std.testing.expectError(error.NonUtf8Path, repos.discover(io, f.a(), .{
+            .roots = &.{.{ .path = f.root, .depth = 2 }},
+            .excluded = excluded,
+            .providers = &.{.git},
+        }));
+    }
     try f.tmp.dir.deleteFile(io, "\xff");
     try f.tmp.dir.createDirPath(io, "\xff/nested/.git");
     const nested = try repos.discover(io, f.a(), .{
         .roots = &.{.{ .path = try f.path("\xff"), .depth = 1 }},
-        .excluded = &.{},
+        .excluded = null,
         .providers = &.{.git},
     });
     try std.testing.expectEqual(@as(usize, 1), nested.len);
@@ -538,7 +592,7 @@ test "discovery ignores a non UTF8 ordinary filename" {
     try f.tmp.dir.createDirPath(io, "\xff/.git");
     try std.testing.expectError(error.NonUtf8Path, repos.discover(io, f.a(), .{
         .roots = &.{.{ .path = try f.path("\xff"), .depth = 1 }},
-        .excluded = &.{},
+        .excluded = null,
         .providers = &.{.git},
     }));
 }

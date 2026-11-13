@@ -2,9 +2,13 @@
 
 ## Contract
 
-`RepoRef` retains the encountered path and the selected provider. `discover` uses a breadth-first queue of validated search roots. It detects repositories at depth zero, follows directory symlinks, and stops below shallow repository markers. Exclusions are case-sensitive literal substrings of the whole encountered path. Configuration owns root expansion and canonicalization.
+`RepoRef` retains the encountered path and the selected provider. Its optional `git_metadata` field defaults to null. Registered submodules retain their resolved metadata path in this field so later resolution uses the same repository.
 
-UTF-8 validation occurs when exclusions need a path string, when discovery returns a repository name, and when a permission warning needs a path string. An unrelated non-UTF-8 filename does not fail discovery without exclusions. A non-UTF-8 ancestor does not invalidate a UTF-8 repository basename.
+`discover` uses a breadth-first queue of validated search roots. It detects repositories at depth zero, follows directory symlinks, and stops below shallow repository markers. Exclusions are case-sensitive literal substrings of the whole encountered path. Configuration owns root expansion and canonicalization.
+
+`Search.excluded` preserves absent and present-empty configuration values. A present exclusion list, even an empty list, requires every queued path to be UTF-8. An absent list skips this validation. Sessions pass `cfg.excluded_dirs` unchanged.
+
+UTF-8 validation also occurs when discovery returns a repository name and when a permission warning needs a path string. An unrelated non-UTF-8 filename does not fail discovery without exclusions. A non-UTF-8 ancestor does not invalidate a UTF-8 repository basename.
 
 Detection does not invoke Git or jj. A broken `.git` marker still stops traversal. `resolve` opens only the selected provider, without fallback. `Resolved` separates the checkout directory, metadata directory, bare classification, and linked classification.
 
@@ -18,7 +22,9 @@ Bare classification reads `core.bare` from the common directory's config before 
 
 Worktree enumeration reads the common Git directory's `worktrees` administrative records. Names are administrative IDs, not branch names. Relative `gitdir` pointers resolve against the administrative record's directory. The main checkout is absent from this list. Records without a `gitdir` file are absent. Missing checkout directories and unreadable or empty pointers are prunable. Invalid pointers have an empty path so downstream shallow detection cannot generate a session from them.
 
-Submodules use a non-symlink `.gitmodules`, then its index version, then its HEAD version. A symlink target never supplies module configuration. Registered module names locate metadata, including nested modules whose checkout directories have been deleted. Returned paths use the configured workdir even when it does not exist. Checkout basenames determine returned names. Recursive names use `child>grandchild`, with descendants before their parents. Uninitialized modules without repository metadata are absent.
+Submodules use a non-symlink `.gitmodules`, then its index version, then its HEAD version. A symlink target never supplies module configuration. A checkout's existing `.git` directory or pointer takes precedence. Otherwise, the known parent's common directory and registered module name locate `modules/<name>`. Resolution does not search ancestors for submodule ownership.
+
+Returned references retain the resolved metadata path, including for nested modules whose checkout directories have been deleted. An unrelated repository between parent and child cannot change this ownership. Returned paths use the configured workdir even when it does not exist. Checkout basenames determine returned names. Recursive names use `child>grandchild`, with descendants before their parents. Uninitialized modules without repository metadata are absent.
 
 Git read commands run inside existing metadata directories with an explicit `--work-tree` argument. A missing configured workdir cannot prevent metadata reads. The argument controls the subprocess context, not the returned workdir.
 
@@ -56,7 +62,7 @@ Following the pointer for generated entries would improve this behavior, but wou
 
 The module tests include filesystem discovery, pointer and protobuf parsing, and temporary Git and jj fixtures. They use no tmux socket and do not change user repositories.
 
-The isolated module run passes 28 tests and skips one on macOS arm64 with Zig 0.17.1, Git 2.56.0, and jj 0.38.0. Sixteen tests execute real Git or jj fixtures through `process.capture` or `process.inherit`. The alias regression gives its own `std.Io.Threaded` an isolated config environment instead of changing user config.
+The isolated module run passes 30 tests and skips one on macOS arm64 with Zig 0.17.1, Git 2.56.0, and jj 0.38.0. Seventeen tests execute real Git or jj fixtures through `process.capture` or `process.inherit`. The alias regression gives its own `std.Io.Threaded` an isolated config environment instead of changing user config.
 
 A small Rust oracle linked the unchanged `src/repos.rs` reference and exercised gix 0.85 and jj-lib 0.38 on temporary fixtures. It confirmed these results:
 
@@ -68,11 +74,16 @@ A small Rust oracle linked the unchanged `src/repos.rs` reference and exercised 
 | Invalid UTF-8 queued path that cannot be opened | Detection fails without a UTF-8 error, explicit string conversion fails |
 | jj workspace named `-topic` | Active workspace returned |
 | Deleted submodule checkout with retained metadata | Configured workdirs returned for child and nested module |
+| Deleted submodule checkout beneath an unrelated `vendor` repository | Parent registration still opens the child and nested module |
 | Symlinked `.gitmodules` with different target content | Index version used, then HEAD after index removal |
 
-macOS rejects creation of the byte-`0xff` filename with `EILSEQ`. The real-file UTF-8 regression skips only that platform error. The synthetic queued-path boundary test passes. Real non-UTF-8 file and ancestor behavior still needs a Linux run. The reference's `search_dirs` converts paths for exclusions and repository names, not every queue entry.
+The unrelated-ancestor regression failed before the fix with zero returned children. It now verifies enumeration, resolution of returned references, nested enumeration through a returned reference, and recursive order.
 
-`zig build test` and the ReleaseFast build pass. Compatibility fixture goldens are unchanged. Command-level compatibility replay remains deferred until configuration integration is ready.
+macOS rejects creation of the byte-`0xff` filename with `EILSEQ`. The real-file UTF-8 regression skips only that platform error. The synthetic queued-path boundary tests pass, including absent versus present-empty exclusions without filesystem access. Real non-UTF-8 file and ancestor behavior still needs a Linux run. The real-file fixture checks both empty and nonempty exclusion lists. The reference's `search_dirs` constructs an excluder for `Some([])` and converts every queued path when that excluder is present.
+
+A separate Rust boundary probe uses the reference's Aho-Corasick builder and `DirtyUtf8Path` conversion on synthetic invalid bytes. `None` skips conversion, while `Some([])` returns `NonUtf8Path`. This probe does not exercise filesystem traversal.
+
+`zig build test`, ReleaseFast tests, and the ReleaseFast build pass. Compatibility fixture goldens are unchanged. Command-level compatibility replay remains deferred until configuration integration is ready.
 
 Run the isolated module tests with the pinned toolchain:
 

@@ -28,7 +28,7 @@ fn entryFor(ref: repos.RepoRef, name: []const u8) Session {
 pub fn discover(io: Io, a: A, env: *const Env, cfg: *const config.Config) anyerror!Catalog {
     const roots = try config.searchRoots(io, a, env, cfg);
     const providers: []const repos.Provider = cfg.vcs_providers orelse &.{.git};
-    const found = try repos.discover(io, a, .{ .roots = roots, .excluded = cfg.excluded_dirs orelse &.{}, .providers = providers });
+    const found = try repos.discover(io, a, .{ .roots = roots, .excluded = cfg.excluded_dirs, .providers = providers });
     var list: std.ArrayList(Session) = .empty;
     for (found) |ref| {
         const name = std.fs.path.basename(ref.path);

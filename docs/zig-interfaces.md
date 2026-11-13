@@ -43,7 +43,7 @@ Public operations use `anyerror` during migration. A nonzero child exit is data 
 The public record declarations in each module are canonical. These invariants govern their use:
 
 - `config.Config` is the raw merged configuration. Every original field remains optional, including lists and maps. `null`, an empty collection, and a collection whose paths are invalid remain distinct. `SettingsEdit` carries CLI edits, not a replacement Config.
-- `repos.RepoRef` has `path` and `provider`. `path` is the encountered spelling, not necessarily canonical. `detect` borrows its path argument. Allocated discovery results use the command allocator.
+- `repos.RepoRef` has `path`, `provider`, and optional `git_metadata`, which defaults to null. `path` is the encountered spelling, not necessarily canonical. Registered submodules retain their resolved metadata path in `git_metadata`. Later resolution uses that path rather than looking for another repository. Other callers leave it null. `detect` borrows its path argument. Allocated discovery results use the command allocator.
 - `sessions.Session` has `key`, `name`, and `source`. `Source` is a repository reference or bookmark path. A visible key is not a tmux name.
 - `sessions.Catalog.entries` is the visible-key-sorted canonical array. `by_key` maps visible keys to entry indices. App uses `catalog.by_key.get(key)` and indexes `entries`. The array and its indices remain unchanged for the catalog lifetime. Duplicate visible keys follow baseline replacement behavior.
 - `picker.Item.id` is an application identity, not an injection index. `choose` returns that ID. App uses catalog indices for session items and separate stable indices for windows or directories. `label` always retains original bytes.
@@ -99,7 +99,9 @@ pub fn cloneRepo(io: Io, a: A, remote: []const u8, target: []const u8) anyerror!
 pub fn initRepo(io: Io, a: A, target: []const u8) anyerror!void;
 ```
 
-`Search` carries validated roots, literal substring exclusions, and ordered providers. Detection is shallow. Resolution is lazy and cannot fall back to another provider. `Resolved` carries cwd, metadata path, bare status, and linked status.
+`Search` carries validated roots, optional literal substring exclusions, and ordered providers. `excluded = null` skips exclusion-related path validation. A present list, including an empty list, requires every queued path to be UTF-8. Callers preserve configuration presence instead of replacing null with an empty list.
+
+Detection is shallow. Resolution is lazy and cannot fall back to another provider. `Resolved` carries cwd, metadata path, bare status, and linked status. Submodule enumeration uses the known parent registration when checkout metadata is absent. Returned references preserve metadata ownership even when an unrelated repository lies between the parent and the deleted checkout.
 
 `WorkspaceSet.active_other` serves refresh and excludes the current jj workspace. `registered` serves generated catalog entries and includes workspace-store records. Git worktree names use administrative IDs. `Submodule.name` retains the provider's name for session naming. `cloneRepo` creates the target directory, inherits output, waits, and preserves the baseline's ignored nonzero exit. Other spawn failures remain errors.
 
