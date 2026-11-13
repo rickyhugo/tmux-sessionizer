@@ -39,21 +39,16 @@ pub fn checkCrossDeviceMetadata(move: anytype) !void {
     if ((try Metadata.read(root_z)).device == (try Metadata.read(second_z)).device)
         return error.SkipZigTest;
     try preservationAt(move, second);
-    if (darwin) try inheritedAclsAt(move, second);
+    if (darwin) {
+        try inheritedAclsAt(move, second);
+        try flagsAt(move, second);
+        try aclHardlinksAt(move, second);
+    }
 }
 
 fn inheritedAclsAt(move: anytype, second: ?[]const u8) !void {
     if (!darwin) return error.SkipZigTest;
-    var uuid: [16]u8 = undefined;
-    try t.expectEqual(@as(c_int, 0), mbr_uid_to_uuid(c.geteuid(), &uuid));
-    const principal = try std.fmt.allocPrint(a, "user:{s}-{s}-{s}-{s}-{s}:owner:{d}", .{
-        std.fmt.bytesToHex(uuid[0..4], .upper),
-        std.fmt.bytesToHex(uuid[4..6], .upper),
-        std.fmt.bytesToHex(uuid[6..8], .upper),
-        std.fmt.bytesToHex(uuid[8..10], .upper),
-        std.fmt.bytesToHex(uuid[10..16], .upper),
-        c.geteuid(),
-    });
+    const principal = try callerPrincipal();
     defer a.free(principal);
     const SourceAcl = enum { none, allow, deny, no_inherit };
     for ([_]SourceAcl{ .none, .allow, .deny, .no_inherit }) |source_kind| {
@@ -167,6 +162,214 @@ fn inheritedAclsAt(move: anytype, second: ?[]const u8) !void {
 
 fn appendAclText(source: []const u8, inherited: []const u8) ![]u8 {
     return std.fmt.allocPrint(a, "{s}{s}", .{ source, inherited["!#acl 1\n".len..] });
+}
+
+fn callerPrincipal() ![]u8 {
+    var uuid: [16]u8 = undefined;
+    try t.expectEqual(@as(c_int, 0), mbr_uid_to_uuid(c.geteuid(), &uuid));
+    return std.fmt.allocPrint(a, "user:{s}-{s}-{s}-{s}-{s}:owner:{d}", .{
+        std.fmt.bytesToHex(uuid[0..4], .upper),
+        std.fmt.bytesToHex(uuid[4..6], .upper),
+        std.fmt.bytesToHex(uuid[6..8], .upper),
+        std.fmt.bytesToHex(uuid[8..10], .upper),
+        std.fmt.bytesToHex(uuid[10..16], .upper),
+        c.geteuid(),
+    });
+}
+
+pub fn checkAclHardlinks(move: anytype) !void {
+    try aclHardlinksAt(move, null);
+}
+
+fn aclHardlinksAt(move: anytype, second: ?[]const u8) !void {
+    if (!darwin) return error.SkipZigTest;
+    var temp = t.tmpDir(.{});
+    defer temp.cleanup();
+    const root = try temp.dir.realPathFileAlloc(io, ".", a);
+    defer a.free(root);
+    const from = try std.fmt.allocPrintSentinel(a, "{s}/source", .{root}, 0);
+    defer a.free(from);
+    const target = try std.fmt.allocPrintSentinel(a, "{s}/tms-hardlinks-{s}", .{ second orelse root, temp.sub_path }, 0);
+    defer a.free(target);
+    const to = try std.fmt.allocPrintSentinel(a, "{s}/source", .{target}, 0);
+    defer a.free(to);
+    defer std.Io.Dir.cwd().deleteTree(io, target) catch unreachable;
+    try temp.dir.createDirPath(io, "source/first");
+    try temp.dir.createDirPath(io, "source/second");
+    try temp.dir.writeFile(io, .{ .sub_path = "source/first/file", .data = "linked contents" });
+    const first = try std.fmt.allocPrintSentinel(a, "{s}/first/file", .{from}, 0);
+    defer a.free(first);
+    const other = try std.fmt.allocPrintSentinel(a, "{s}/second/file", .{from}, 0);
+    defer a.free(other);
+    try t.expectEqual(@as(c_int, 0), c.link(first, other));
+    const contents = try std.Io.Dir.cwd().readFileAlloc(io, other, a, .limited(64));
+    defer a.free(contents);
+    try t.expectEqualStrings("linked contents", contents);
+    const principal = try callerPrincipal();
+    defer a.free(principal);
+    const allow = try std.fmt.allocPrintSentinel(a, "!#acl 1\n{s}:allow:execute\n", .{principal}, 0);
+    defer a.free(allow);
+    try setAcl(from, allow);
+    try std.Io.Dir.cwd().createDir(io, target, .default_dir);
+    const deny = try std.fmt.allocPrintSentinel(a, "!#acl 1\n{s}:deny,directory_inherit,only_inherit:execute\n", .{principal}, 0);
+    defer a.free(deny);
+    try setAcl(target, deny);
+    if (second != null)
+        try t.expectError(error.CrossDevice, std.Io.Dir.cwd().rename(from, .cwd(), to, io));
+    try move(io, a, from, to);
+    try t.expectError(error.FileNotFound, temp.dir.statFile(io, "source", .{}));
+    var inode: ?u64 = null;
+    for ([_][]const u8{ "first", "second" }) |name| {
+        const directory = try std.fmt.allocPrintSentinel(a, "{s}/{s}", .{ to, name }, 0);
+        defer a.free(directory);
+        defer setAcl(directory, "!#acl 1\n") catch unreachable;
+        const file = try std.fmt.allocPrintSentinel(a, "{s}/file", .{directory}, 0);
+        defer a.free(file);
+        try t.expectError(error.AccessDenied, std.Io.Dir.cwd().openFile(io, file, .{}));
+        const permissions = try aclBytes(directory);
+        defer a.free(permissions);
+        try t.expect(std.mem.indexOf(u8, permissions, "deny") != null);
+        try t.expect(std.mem.indexOf(u8, permissions, "inherited") != null);
+        try t.expect(std.mem.indexOf(u8, permissions, "execute") != null);
+        try setAcl(directory, "!#acl 1\n");
+        const stat = try Metadata.read(file);
+        if (inode) |previous| try t.expectEqual(previous, stat.inode);
+        inode = stat.inode;
+        try t.expectEqual(@as(u64, 2), stat.nlink);
+        const moved = try std.Io.Dir.cwd().readFileAlloc(io, file, a, .limited(64));
+        defer a.free(moved);
+        try t.expectEqualStrings("linked contents", moved);
+    }
+}
+
+pub fn checkFlags(move: anytype) !void {
+    try flagsAt(move, null);
+}
+
+fn flagsAt(move: anytype, second: ?[]const u8) !void {
+    if (!darwin) return error.SkipZigTest;
+    for ([_]u32{ native.UF_IMMUTABLE, native.UF_APPEND }) |flags| {
+        var temp = t.tmpDir(.{});
+        defer temp.cleanup();
+        const root = try temp.dir.realPathFileAlloc(io, ".", a);
+        defer a.free(root);
+        const from = try std.fmt.allocPrintSentinel(a, "{s}/source", .{root}, 0);
+        defer a.free(from);
+        const target = try std.fmt.allocPrintSentinel(a, "{s}/tms-flags-{s}", .{ second orelse root, temp.sub_path }, 0);
+        defer a.free(target);
+        const to = try std.fmt.allocPrintSentinel(a, "{s}/source", .{target}, 0);
+        defer a.free(to);
+        const move_to = if (second != null) target else to;
+        const file = try std.fmt.allocPrintSentinel(a, "{s}/file", .{from}, 0);
+        defer a.free(file);
+        const moved = try std.fmt.allocPrintSentinel(a, "{s}/file", .{to}, 0);
+        defer a.free(moved);
+        const locked = try std.fmt.allocPrintSentinel(a, "{s}/locked", .{from}, 0);
+        defer a.free(locked);
+        const moved_locked = try std.fmt.allocPrintSentinel(a, "{s}/locked", .{to}, 0);
+        defer a.free(moved_locked);
+        const outside = try std.fmt.allocPrintSentinel(a, "{s}/outside", .{root}, 0);
+        defer a.free(outside);
+        defer {
+            _ = native.lchflags(from, 0);
+            _ = native.lchflags(file, 0);
+            _ = native.lchflags(moved, 0);
+            _ = native.lchflags(locked, 0);
+            _ = native.lchflags(moved_locked, 0);
+            _ = native.lchflags(outside, 0);
+            var dir = std.Io.Dir.cwd().openDir(io, target, .{ .iterate = true }) catch unreachable;
+            defer dir.close(io);
+            var iterator = dir.iterate();
+            while (iterator.next(io) catch unreachable) |entry| {
+                if (!std.mem.startsWith(u8, entry.name, ".tms-move-")) continue;
+                var buffer: [std.fs.max_path_bytes]u8 = undefined;
+                for ([_][]const u8{ "item", "item/file", "item/locked" }) |suffix| {
+                    const path = std.fmt.bufPrintSentinel(&buffer, "{s}/{s}/{s}", .{ target, entry.name, suffix }, 0) catch unreachable;
+                    _ = native.lchflags(path, 0);
+                }
+            }
+            std.Io.Dir.cwd().deleteTree(io, target) catch unreachable;
+        }
+        try temp.dir.createDir(io, "source", .default_dir);
+        try temp.dir.writeFile(io, .{ .sub_path = "source/file", .data = "protected contents" });
+        try temp.dir.createDirPath(io, "source/locked");
+        try temp.dir.writeFile(io, .{ .sub_path = "source/locked/file", .data = "locked contents" });
+        try temp.dir.writeFile(io, .{ .sub_path = "outside", .data = "outside contents" });
+        try temp.dir.symLink(io, outside, "source/link", .{});
+        try t.expectEqual(@as(c_int, 0), native.lchflags(locked, flags));
+        try t.expectEqual(@as(c_int, 0), native.lchflags(outside, flags));
+        try std.Io.Dir.cwd().createDir(io, target, .default_dir);
+        try std.Io.Dir.cwd().createDir(io, to, .default_dir);
+        try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = moved, .data = "old destination" });
+        try setXattr(file, "com.tms.test", "attribute");
+        try setXattr(file, "com.apple.ResourceFork", "resource fork contents");
+        try t.expectEqual(@as(c_int, 0), native.chmod(file, 0o640));
+        const times: [2]c.timespec = .{
+            .{ .sec = 1234567890, .nsec = 123456000 },
+            .{ .sec = 1234567891, .nsec = 654321000 },
+        };
+        try t.expectEqual(@as(c_int, 0), c.utimensat(c.AT.FDCWD, file, &times, 0));
+        const principal = try callerPrincipal();
+        defer a.free(principal);
+        const permissions = try std.fmt.allocPrintSentinel(a, "!#acl 1\n{s}:deny:writeattr\n", .{principal}, 0);
+        defer a.free(permissions);
+        try setAcl(file, permissions);
+        const before_acl = try aclBytes(file);
+        defer a.free(before_acl);
+        try t.expectEqual(@as(c_int, 0), native.lchflags(file, flags));
+        const before = try Metadata.read(file);
+        const old = try Metadata.read(moved);
+        if (second != null)
+            try t.expectError(error.CrossDevice, std.Io.Dir.cwd().rename(from, .cwd(), to, io));
+        const result = move(io, a, from, move_to);
+        try expectNoStaging(target);
+        try t.expectError(error.DirNotEmpty, result);
+        try t.expectEqual(before.inode, (try Metadata.read(file)).inode);
+        try t.expectEqual(flags, (try Metadata.read(file)).flags);
+        try t.expectEqual(flags, (try Metadata.read(locked)).flags);
+        try t.expectEqual(flags, (try Metadata.read(outside)).flags);
+        try t.expectEqual(old.inode, (try Metadata.read(moved)).inode);
+        const old_contents = try std.Io.Dir.cwd().readFileAlloc(io, moved, a, .limited(64));
+        defer a.free(old_contents);
+        try t.expectEqualStrings("old destination", old_contents);
+        try std.Io.Dir.cwd().deleteTree(io, to);
+        const retry_before = try Metadata.read(file);
+        try t.expectError(error.PermissionDenied, move(io, a, from, move_to));
+        try expectNoStaging(target);
+        try t.expectEqual(before.inode, (try Metadata.read(file)).inode);
+        const after = try Metadata.read(moved);
+        try t.expectEqual(before.uid, after.uid);
+        try t.expectEqual(before.gid, after.gid);
+        try t.expectEqual(before.mode, after.mode);
+        try t.expectEqual(retry_before.atime, after.atime);
+        try t.expectEqual(before.mtime, after.mtime);
+        try t.expectEqual(flags, (try Metadata.read(file)).flags);
+        try t.expectEqual(flags, after.flags);
+        try t.expectEqual(flags, (try Metadata.read(moved_locked)).flags);
+        try t.expectEqual(flags, (try Metadata.read(outside)).flags);
+        const after_acl = try aclBytes(moved);
+        defer a.free(after_acl);
+        try t.expectEqualSlices(u8, before_acl, after_acl);
+        try checkXattr(moved, "com.tms.test", "attribute");
+        try checkXattr(moved, "com.apple.ResourceFork", "resource fork contents");
+        const contents = try std.Io.Dir.cwd().readFileAlloc(io, moved, a, .limited(64));
+        defer a.free(contents);
+        try t.expectEqualStrings("protected contents", contents);
+        const published = try Metadata.read(to);
+        try t.expectEqual(@as(c_int, 0), native.lchflags(from, flags));
+        try t.expectError(error.PermissionDenied, move(io, a, from, move_to));
+        try expectNoStaging(target);
+        try t.expectEqual(flags, (try Metadata.read(from)).flags);
+        try t.expectEqual(published.inode, (try Metadata.read(to)).inode);
+    }
+}
+
+fn expectNoStaging(path: []const u8) !void {
+    var dir = try std.Io.Dir.cwd().openDir(io, path, .{ .iterate = true });
+    defer dir.close(io);
+    var iterator = dir.iterate();
+    while (try iterator.next(io)) |entry|
+        try t.expect(!std.mem.startsWith(u8, entry.name, ".tms-move-"));
 }
 
 fn setAcl(path: [:0]const u8, text: [:0]const u8) !void {

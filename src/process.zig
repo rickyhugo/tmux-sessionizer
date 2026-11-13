@@ -164,3 +164,11 @@ test "failed publication removes read-only staging directories without following
 test "native move preserves metadata and ACLs across a real device boundary" {
     try @import("process/move_tests.zig").checkCrossDeviceMetadata(movePath);
 }
+
+test "cross-device fallback finishes sibling hardlinks before restrictive ACLs" {
+    try @import("process/move_tests.zig").checkAclHardlinks(moveAcrossDevices);
+}
+
+test "cross-device fallback preserves Darwin flags and cleans failed publication" {
+    try @import("process/move_tests.zig").checkFlags(moveAcrossDevices);
+}

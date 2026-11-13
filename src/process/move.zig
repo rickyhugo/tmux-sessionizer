@@ -5,6 +5,7 @@ const c = std.c;
 pub const native = struct {
     pub extern "c" fn mkdtemp([*:0]u8) ?[*:0]u8;
     pub extern "c" fn chmod([*:0]const u8, c.mode_t) c_int;
+    pub extern "c" fn lchflags([*:0]const u8, u32) c_int;
     pub extern "c" fn mkfifo([*:0]const u8, c.mode_t) c_int;
     pub extern "c" fn copyfile([*:0]const u8, [*:0]const u8, ?*anyopaque, u32) c_int;
     pub extern "c" fn acl_init(c_int) ?*anyopaque;
@@ -26,12 +27,23 @@ pub const native = struct {
     pub extern "c" fn lremovexattr([*:0]const u8, [*:0]const u8) c_int;
     pub extern "c" fn getxattr([*:0]const u8, [*:0]const u8, ?[*]u8, usize, u32, c_int) isize;
     pub extern "c" fn setxattr([*:0]const u8, [*:0]const u8, [*]const u8, usize, u32, c_int) c_int;
-    pub const COPYFILE_ALL: u32 = 0xf;
-    pub const COPYFILE_METADATA: u32 = 0x7;
-    pub const COPYFILE_ACL: u32 = 1;
+    pub const COPYFILE_XATTR: u32 = 1 << 2;
+    pub const COPYFILE_DATA: u32 = 1 << 3;
     pub const COPYFILE_EXCL: u32 = 1 << 17;
     pub const COPYFILE_NOFOLLOW: u32 = (1 << 18) | (1 << 19);
     pub const XATTR_NOFOLLOW: c_int = 1;
+    pub const UF_IMMUTABLE: u32 = 0x2;
+    pub const UF_APPEND: u32 = 0x4;
+    pub const UF_COMPRESSED: u32 = 0x20;
+    pub const UF_TRACKED: u32 = 0x40;
+    pub const UF_DATAVAULT: u32 = 0x80;
+    pub const SF_IMMUTABLE: u32 = 0x20000;
+    pub const SF_APPEND: u32 = 0x40000;
+    pub const SF_RESTRICTED: u32 = 0x80000;
+    pub const SF_NOUNLINK: u32 = 0x100000;
+    pub const COPYFILE_PRESERVE_FLAGS: u32 = UF_DATAVAULT | SF_RESTRICTED | SF_NOUNLINK;
+    pub const COPYFILE_OMIT_FLAGS: u32 = UF_TRACKED | COPYFILE_PRESERVE_FLAGS;
+    pub const BLOCKING_FLAGS: u32 = UF_IMMUTABLE | UF_APPEND | SF_IMMUTABLE | SF_APPEND;
 };
 
 const Acl = struct {
@@ -123,6 +135,7 @@ pub const Metadata = struct {
     gid: c.gid_t,
     atime: c.timespec,
     mtime: c.timespec,
+    flags: u32 = 0,
 
     pub fn read(path: [:0]const u8) !Metadata {
         if (darwin) {
@@ -137,6 +150,7 @@ pub const Metadata = struct {
                 .gid = value.gid,
                 .atime = value.atime(),
                 .mtime = value.mtime(),
+                .flags = value.flags,
             };
         }
         const linux = std.os.linux;
@@ -171,6 +185,7 @@ pub const Metadata = struct {
 pub const CopyContext = struct {
     arena: std.heap.ArenaAllocator,
     hardlinks: std.AutoHashMapUnmanaged(Inode, [:0]const u8) = .empty,
+    pending: std.ArrayList(FinalMetadata) = .empty,
 
     const Inode = struct { device: u64, inode: u64 };
 
@@ -179,6 +194,7 @@ pub const CopyContext = struct {
     }
 
     pub fn deinit(self: *CopyContext) void {
+        for (self.pending.items) |metadata| metadata.acl.deinit();
         self.arena.deinit();
     }
 
@@ -210,6 +226,7 @@ pub const CopyContext = struct {
         const parent_acl: Acl = if (darwin) try .read(parent) else .{};
         defer parent_acl.deinit();
         try self.copy(io, from, item, parent_acl);
+        for (self.pending.items) |metadata| try metadata.apply();
         try std.Io.Dir.cwd().rename(item, .cwd(), to, io);
     }
 
@@ -248,7 +265,7 @@ pub const CopyContext = struct {
             },
             c.S.IFREG => {
                 if (darwin) {
-                    if (native.copyfile(source, destination, null, (native.COPYFILE_ALL & ~native.COPYFILE_ACL) | native.COPYFILE_NOFOLLOW | native.COPYFILE_EXCL) != 0)
+                    if (native.copyfile(source, destination, null, native.COPYFILE_DATA | native.COPYFILE_XATTR | native.COPYFILE_NOFOLLOW | native.COPYFILE_EXCL) != 0)
                         return error.CopyFileFailed;
                 } else {
                     const input = c.open(source, .{ .ACCMODE = .RDONLY, .NOFOLLOW = true, .NONBLOCK = true, .CLOEXEC = true });
@@ -290,29 +307,19 @@ pub const CopyContext = struct {
             else => return error.UnsupportedFileType,
         }
 
-        if (c.fchownat(c.AT.FDCWD, destination, stat.uid, stat.gid, c.AT.SYMLINK_NOFOLLOW) != 0)
-            return error.PreserveOwnershipFailed;
         if (darwin) {
             if (kind == c.S.IFIFO) {
                 try self.copyXattrs(source, destination);
-            } else if (native.copyfile(source, destination, null, (native.COPYFILE_METADATA & ~native.COPYFILE_ACL) | native.COPYFILE_NOFOLLOW) != 0)
+            } else if (kind != c.S.IFREG and native.copyfile(source, destination, null, native.COPYFILE_XATTR | native.COPYFILE_NOFOLLOW) != 0)
                 return error.PreserveMetadataFailed;
-        } else {
-            try self.copyXattrs(source, destination);
-        }
-        if (kind != c.S.IFLNK) {
-            if (c.fchmodat(c.AT.FDCWD, destination, stat.mode & 0o7777, 0) != 0)
-                return error.SetPermissionsFailed;
-        } else if (darwin) {
-            if (c.fchmodat(c.AT.FDCWD, destination, stat.mode & 0o7777, c.AT.SYMLINK_NOFOLLOW) != 0)
-                return error.SetPermissionsFailed;
-        }
-        const times: [2]c.timespec = .{ stat.atime, stat.mtime };
-        if (c.utimensat(c.AT.FDCWD, destination, &times, c.AT.SYMLINK_NOFOLLOW) != 0)
-            return error.PreserveTimestampsFailed;
-        if (darwin) {
             try source_acl.append(inherited_acl);
-            try source_acl.apply(destination);
+            try self.pending.append(a, .{ .destination = destination, .stat = stat, .acl = source_acl });
+            source_acl = .{};
+        } else {
+            if (c.fchownat(c.AT.FDCWD, destination, stat.uid, stat.gid, c.AT.SYMLINK_NOFOLLOW) != 0)
+                return error.PreserveOwnershipFailed;
+            try self.copyXattrs(source, destination);
+            try (FinalMetadata{ .destination = destination, .stat = stat }).apply();
         }
         if (kind != c.S.IFDIR and stat.nlink > 1)
             try self.hardlinks.put(a, inode, destination);
@@ -344,6 +351,35 @@ pub const CopyContext = struct {
     }
 };
 
+const FinalMetadata = struct {
+    destination: [:0]const u8,
+    stat: Metadata,
+    acl: Acl = .{},
+
+    fn apply(self: FinalMetadata) !void {
+        const path = self.destination;
+        const stat = self.stat;
+        if (darwin and c.fchownat(c.AT.FDCWD, path, stat.uid, stat.gid, c.AT.SYMLINK_NOFOLLOW) != 0)
+            return error.PreserveOwnershipFailed;
+        if (stat.mode & c.S.IFMT != c.S.IFLNK or darwin) {
+            if (c.fchmodat(c.AT.FDCWD, path, stat.mode & 0o7777, if (darwin) c.AT.SYMLINK_NOFOLLOW else 0) != 0)
+                return error.SetPermissionsFailed;
+        }
+        const times: [2]c.timespec = .{ stat.atime, stat.mtime };
+        if (c.utimensat(c.AT.FDCWD, path, &times, c.AT.SYMLINK_NOFOLLOW) != 0)
+            return error.PreserveTimestampsFailed;
+        if (darwin) {
+            const current = (try Metadata.read(path)).flags;
+            // copyfile may preserve compression or fall back to uncompressed data.
+            const flags = (stat.flags & ~(native.COPYFILE_OMIT_FLAGS | native.UF_COMPRESSED)) |
+                (current & (native.COPYFILE_PRESERVE_FLAGS | native.UF_COMPRESSED));
+            try self.acl.apply(path);
+            if (flags != current and native.lchflags(path, flags) != 0)
+                return error.PreserveFlagsFailed;
+        }
+    }
+};
+
 fn clearAcl(path: [:0]const u8) !void {
     const acl = native.acl_init(0) orelse return error.CreateAclFailed;
     defer _ = native.acl_free(acl);
@@ -353,6 +389,11 @@ fn clearAcl(path: [:0]const u8) !void {
 
 fn makeStagingWritable(io: std.Io, path: [:0]const u8) anyerror!void {
     const stat = try std.Io.Dir.cwd().statFile(io, path, .{ .follow_symlinks = false });
+    if (darwin) {
+        const flags = (try Metadata.read(path)).flags;
+        if (flags & native.BLOCKING_FLAGS != 0 and native.lchflags(path, flags & ~native.BLOCKING_FLAGS) != 0)
+            return error.ClearFlagsFailed;
+    }
     if (stat.kind == .sym_link) return;
     if (darwin) try clearAcl(path);
     if (stat.kind != .directory) return;
