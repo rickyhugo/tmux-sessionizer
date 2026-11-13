@@ -61,13 +61,8 @@ fn escapeZsh(w: *std.Io.Writer, value: []const u8, escape_colon: bool) !void {
 
 fn option(id: spec.Id, value: []const u8) ?spec.Option {
     const long = std.mem.startsWith(u8, value, "--");
-    const name = if (long) value[2 .. std.mem.indexOfScalar(u8, value, '=') orelse value.len] else "";
-    for (spec.get(id).options) |o| {
-        if (long and std.mem.eql(u8, o.long, name)) return o;
-        if (!long and value.len >= 2 and value[0] == '-' and o.short == value[1]) return o;
-    }
-    if ((long and std.mem.eql(u8, name, "help")) or std.mem.eql(u8, value, "-h")) return spec.help_option;
-    if (id == .root and ((long and std.mem.eql(u8, name, "version")) or std.mem.eql(u8, value, "-V"))) return spec.version_option;
+    if (long) return spec.findOption(id, .{ .long = value[2 .. std.mem.indexOfScalar(u8, value, '=') orelse value.len] });
+    if (value.len >= 2 and value[0] == '-') return spec.findOption(id, .{ .short = value[1] });
     return null;
 }
 

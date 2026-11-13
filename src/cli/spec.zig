@@ -114,6 +114,22 @@ pub fn child(parent: Id, name: []const u8) ?Id {
     for (specs) |s| if (s.parent == parent and std.mem.eql(u8, s.name, name)) return s.id;
     return null;
 }
+pub const OptionName = union(enum) { long: []const u8, short: u8 };
+
+pub fn findOption(id: Id, name: OptionName) ?Option {
+    for (get(id).options) |o| if (matches(o, name)) return o;
+    if (matches(help_option, name)) return help_option;
+    if (id == .root and matches(version_option, name)) return version_option;
+    return null;
+}
+
+fn matches(o: Option, name: OptionName) bool {
+    return switch (name) {
+        .long => |long| std.mem.eql(u8, o.long, long),
+        .short => |short| o.short == short,
+    };
+}
+
 pub fn path(a: std.mem.Allocator, id: Id) ![]const []const u8 {
     const s = get(id);
     if (s.parent == null) return &.{};
@@ -198,4 +214,24 @@ pub fn help(a: std.mem.Allocator, id: Id) ![]const u8 {
         try w.writeByte('\n');
     }
     return out.toOwnedSlice();
+}
+
+test "normalized option lookup shares command options and built-ins" {
+    for (specs) |s| {
+        for (s.options) |o| {
+            try std.testing.expectEqual(o.id, findOption(s.id, .{ .long = o.long }).?.id);
+            if (o.short) |short| try std.testing.expectEqual(o.id, findOption(s.id, .{ .short = short }).?.id);
+        }
+        try std.testing.expectEqual(OptionId.help, findOption(s.id, .{ .long = "help" }).?.id);
+        try std.testing.expectEqual(OptionId.help, findOption(s.id, .{ .short = 'h' }).?.id);
+        if (s.id != .root) {
+            try std.testing.expect(findOption(s.id, .{ .long = "version" }) == null);
+            try std.testing.expect(findOption(s.id, .{ .short = 'V' }) == null);
+        }
+    }
+    try std.testing.expectEqual(OptionId.version, findOption(.root, .{ .long = "version" }).?.id);
+    try std.testing.expectEqual(OptionId.version, findOption(.root, .{ .short = 'V' }).?.id);
+    try std.testing.expect(findOption(.root, .{ .long = "paths" }) == null);
+    try std.testing.expect(findOption(.config, .{ .long = "paths=value" }) == null);
+    try std.testing.expect(findOption(.config, .{ .short = '?' }) == null);
 }

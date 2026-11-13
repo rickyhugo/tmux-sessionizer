@@ -90,27 +90,14 @@ const Parser = struct {
     }
     fn usageError(p: *Parser, text: []const u8) anyerror {
         const usage = spec.usage(p.a, p.id) catch return error.OutOfMemory;
-        return p.fail("error: {s}\n\nUsage: {s}\n\nFor more information, try '--help'.\n", .{ text, usage });
+        return p.fail("error: {s}\n\nUsage: {s}\n{s}", .{ text, usage, if (spec.isHelp(p.id)) "" else "\nFor more information, try '--help'.\n" });
     }
     fn unexpected(p: *Parser, value: []const u8) anyerror {
         const text = std.fmt.allocPrint(p.a, "unexpected argument '{s}' found{s}", .{ value, if (spec.get(p.id).positional != null and std.mem.startsWith(u8, value, "-")) std.fmt.allocPrint(p.a, "\n\n  tip: to pass '{s}' as a value, use '-- {s}'", .{ value, value }) catch return error.OutOfMemory else "" }) catch return error.OutOfMemory;
         return p.usageError(text);
     }
-    fn option(p: *Parser, long: ?[]const u8, short: ?u8) ?spec.Option {
-        const s = spec.get(p.id);
-        for (s.options) |o| {
-            if (long) |name| if (std.mem.eql(u8, name, o.long)) return o;
-            if (short) |ch| if (o.short == ch) return o;
-        }
-        if (long) |name| {
-            if (std.mem.eql(u8, name, "help")) return spec.help_option;
-            if (p.id == .root and std.mem.eql(u8, name, "version")) return spec.version_option;
-        }
-        if (short) |ch| {
-            if (ch == 'h') return spec.help_option;
-            if (p.id == .root and ch == 'V') return spec.version_option;
-        }
-        return null;
+    fn validateUtf8(p: *Parser, value: []const u8) !void {
+        if (!std.unicode.utf8ValidateSlice(value)) return p.usageError("invalid UTF-8 was detected in one or more arguments");
     }
     fn number(p: *Parser, value: []const u8, label: []const u8) !usize {
         return config.parseIndex(value) catch {
@@ -124,6 +111,8 @@ const Parser = struct {
         };
     }
     fn validate(p: *Parser, o: spec.Option, value: []const u8) !void {
+        // Clap's possible-value parser reports lossy text; other values require UTF-8.
+        if (spec.values(o.kind).len == 0) try p.validateUtf8(value);
         const label = try spec.label(p.a, o);
         if (o.kind == .uints) {
             _ = try p.number(value, label);
@@ -137,8 +126,8 @@ const Parser = struct {
                 if (std.mem.eql(u8, value, candidate)) return;
                 if (std.ascii.eqlIgnoreCase(value, candidate)) similar = candidate;
             }
-            return p.fail("error: invalid value '{s}' for '{s}'\n  [possible values: {s}]\n{s}\nFor more information, try '--help'.\n", .{
-                value,                                                                                                  label, try std.mem.join(p.a, ", ", possible),
+            return p.fail("error: invalid value '{f}' for '{s}'\n  [possible values: {s}]\n{s}\nFor more information, try '--help'.\n", .{
+                std.unicode.fmtUtf8(value),                                                                             label, try std.mem.join(p.a, ", ", possible),
                 if (similar) |s| try std.fmt.allocPrint(p.a, "\n  tip: a similar value exists: '{s}'\n", .{s}) else "",
             });
         }
@@ -175,7 +164,7 @@ const Parser = struct {
                 const long = arg[1] == '-';
                 while (cursor < arg.len) {
                     const eq = if (long) std.mem.indexOfScalar(u8, arg, '=') else null;
-                    const o = if (long) p.option(arg[2 .. eq orelse arg.len], null) else p.option(null, arg[cursor]);
+                    const o = spec.findOption(p.id, if (long) .{ .long = arg[2 .. eq orelse arg.len] } else .{ .short = arg[cursor] });
                     const selected = o orelse return p.unexpected(if (long) arg else try std.fmt.allocPrint(p.a, "-{c}", .{arg[cursor]}));
                     if (eq) |n| if (selected.kind == .flag) return p.fail("error: unexpected value '{s}' for '--{s}' found; no more were expected\n\nUsage: {s} --{s}\n\nFor more information, try '--help'.\n", .{ arg[n + 1 ..], selected.long, try spec.invocation(p.a, p.id), selected.long });
                     if (selected.id == .help) return .{ .help = try spec.path(p.a, p.id) };
@@ -194,7 +183,8 @@ const Parser = struct {
                         while (i + 1 < p.args.len) {
                             const next = p.args[i + 1];
                             if (next.len > 1 and next[0] == '-') {
-                                if (vals.items.len == 0 and !std.mem.eql(u8, next, "--help") and !std.mem.eql(u8, next, "-h") and p.option(if (std.mem.startsWith(u8, next, "--")) next[2..] else null, if (next.len == 2) next[1] else null) == null) return p.unexpected(next);
+                                const next_option = if (std.mem.startsWith(u8, next, "--")) spec.findOption(p.id, .{ .long = next[2..] }) else if (next.len == 2) spec.findOption(p.id, .{ .short = next[1] }) else null;
+                                if (vals.items.len == 0 and !std.mem.eql(u8, next, "--") and next_option == null) return p.unexpected(next);
                                 break;
                             }
                             if (vals.items.len != 0 and !selected.many()) break;
@@ -213,9 +203,8 @@ const Parser = struct {
             }
             if (!literal) {
                 if (std.mem.eql(u8, arg, "help") and (p.id == .root or p.id == .config or p.id == .marks)) {
-                    var target = p.id;
-                    for (p.args[i + 1 ..]) |part| target = spec.child(target, part) orelse return p.usageError(try std.fmt.allocPrint(p.a, "unrecognized subcommand '{s}'", .{part}));
-                    return .{ .help = try spec.path(p.a, target) };
+                    for (p.args[i + 1 ..]) |part| p.id = spec.child(p.id, part) orelse return p.usageError(try std.fmt.allocPrint(p.a, "unrecognized subcommand '{s}'", .{part}));
+                    return .{ .help = try spec.path(p.a, p.id) };
                 }
                 if (spec.child(p.id, arg)) |child| {
                     if (p.first_option) |first| return p.usageError(try std.fmt.allocPrint(p.a, "the subcommand '{s}' cannot be used with '{s}'", .{ arg, try spec.label(p.a, first) }));
@@ -226,10 +215,13 @@ const Parser = struct {
             }
             const s = spec.get(p.id);
             if (s.positional == null) {
+                if (p.id == .config) if (p.first_option) |first| return p.usageError(try std.fmt.allocPrint(p.a, "the subcommand '{s}' cannot be used with '{s}'", .{ arg, try spec.label(p.a, first) }));
+                if (literal and spec.child(p.id, arg) != null) return p.usageError(try std.fmt.allocPrint(p.a, "unexpected argument '{s}' found\n\n  tip: subcommand '{s}' exists; to use it, remove the '--' before it", .{ arg, arg }));
                 if (p.id == .root or p.id == .config) return p.usageError(try std.fmt.allocPrint(p.a, "unrecognized subcommand '{s}'", .{arg}));
                 return p.unexpected(arg);
             }
             if (p.positional != null) return p.unexpected(arg);
+            try p.validateUtf8(arg);
             if (std.mem.eql(u8, s.positional.?, "INDEX")) _ = try p.number(arg, if (s.required) "<INDEX>" else "[INDEX]");
             p.positional = arg;
         }
@@ -340,4 +332,68 @@ test "CLI diagnostics reject invalid values and conflicting commands" {
     try env.put("COMPLETE", "0");
     try std.testing.expectEqual(false, try complete(std.testing.io, a, &.{"tms"}, &env));
     try std.testing.expect(failure == null);
+}
+
+test "CLI rejects invalid UTF-8 values with command-specific usage" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const cases = [_]struct { args: []const []const u8, id: spec.Id }{
+        .{ .args = &.{ "bookmark", "invalid-\xff" }, .id = .bookmark },
+        .{ .args = &.{ "bookmark", "--", "\xff" }, .id = .bookmark },
+        .{ .args = &.{ "config", "--session", "invalid-\xff" }, .id = .config },
+        .{ .args = &.{ "config", "--session=\xff" }, .id = .config },
+        .{ .args = &.{ "config", "-s\xff" }, .id = .config },
+        .{ .args = &.{ "config", "--paths", "valid", "\xff" }, .id = .config },
+        .{ .args = &.{ "config", "--max-depths", "\xff" }, .id = .config },
+        .{ .args = &.{ "marks", "open", "\xff" }, .id = .marks_open },
+    };
+    for (cases) |case| {
+        const result = try parseDetailed(a, case.args);
+        try std.testing.expect(result == .diagnostic);
+        try std.testing.expectEqual(@as(u8, 2), result.diagnostic.exit_code);
+        try std.testing.expectEqualStrings(try std.fmt.allocPrint(a, "error: invalid UTF-8 was detected in one or more arguments\n\nUsage: {s}\n\nFor more information, try '--help'.\n", .{try spec.usage(a, case.id)}), result.diagnostic.text);
+    }
+}
+
+test "CLI diagnostics retain help targets and end-marker context" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const cases = [_]struct { args: []const []const u8, text: []const u8 }{
+        .{
+            .args = &.{ "help", "config", "--help" },
+            .text = "error: unrecognized subcommand '--help'\n\nUsage: tms config [OPTIONS]\n       tms config <COMMAND>\n\nFor more information, try '--help'.\n",
+        },
+        .{
+            .args = &.{ "help", "marks", "--help" },
+            .text = "error: unrecognized subcommand '--help'\n\nUsage: tms marks [INDEX]\n       tms marks <COMMAND>\n\nFor more information, try '--help'.\n",
+        },
+        .{
+            .args = &.{ "help", "help", "config" },
+            .text = "error: unrecognized subcommand 'config'\n\nUsage: tms help [COMMAND]...\n",
+        },
+        .{
+            .args = &.{ "config", "--", "list" },
+            .text = "error: unexpected argument 'list' found\n\n  tip: subcommand 'list' exists; to use it, remove the '--' before it\n\nUsage: tms config [OPTIONS]\n       tms config <COMMAND>\n\nFor more information, try '--help'.\n",
+        },
+        .{
+            .args = &.{ "config", "--paths", "--" },
+            .text = "error: a value is required for '--paths <search paths>...' but none was supplied\n\nFor more information, try '--help'.\n",
+        },
+        .{
+            .args = &.{ "config", "--full-path", "true", "--", "list" },
+            .text = "error: the subcommand 'list' cannot be used with '--full-path <true | false>'\n\nUsage: tms config [OPTIONS]\n       tms config <COMMAND>\n\nFor more information, try '--help'.\n",
+        },
+        .{
+            .args = &.{ "config", "--full-path", "\xff" },
+            .text = "error: invalid value '�' for '--full-path <true | false>'\n  [possible values: true, false]\n\nFor more information, try '--help'.\n",
+        },
+    };
+    for (cases) |case| {
+        const result = try parseDetailed(a, case.args);
+        try std.testing.expect(result == .diagnostic);
+        try std.testing.expectEqual(@as(u8, 2), result.diagnostic.exit_code);
+        try std.testing.expectEqualStrings(case.text, result.diagnostic.text);
+    }
 }
