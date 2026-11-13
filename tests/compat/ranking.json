@@ -1,0 +1,407 @@
+[
+  {
+    "name": "composed-decomposed",
+    "query": "café",
+    "items": [
+      "café",
+      "café",
+      "cafe",
+      "Café",
+      "caféteria"
+    ],
+    "ranked": [
+      "café",
+      "Café",
+      "caféteria"
+    ]
+  },
+  {
+    "name": "emoji-graphemes",
+    "query": "👩",
+    "items": [
+      "👩",
+      "👩‍💻",
+      "👩‍🔬",
+      "x👩‍💻",
+      "🧑‍💻",
+      "🙂"
+    ],
+    "ranked": [
+      "👩",
+      "👩‍💻",
+      "👩‍🔬",
+      "x👩‍💻"
+    ]
+  },
+  {
+    "name": "emoji-zwj-query",
+    "query": "👩‍💻",
+    "items": [
+      "👩",
+      "👩‍💻",
+      "👩‍🔬",
+      "x👩‍💻",
+      "💻"
+    ],
+    "ranked": [
+      "👩",
+      "👩‍💻",
+      "👩‍🔬",
+      "x👩‍💻"
+    ]
+  },
+  {
+    "name": "whole-string-atom",
+    "query": "^foo$",
+    "items": [
+      "foo",
+      "Foo",
+      "foobar",
+      "barfoo"
+    ],
+    "ranked": [
+      "foo",
+      "Foo"
+    ]
+  },
+  {
+    "name": "inverse-prefix",
+    "query": "!^foo",
+    "items": [
+      "foo",
+      "Foo",
+      "foobar",
+      "barfoo",
+      "bar"
+    ],
+    "ranked": [
+      "bar",
+      "barfoo"
+    ]
+  },
+  {
+    "name": "inverse-postfix",
+    "query": "!foo$",
+    "items": [
+      "foo",
+      "Foo",
+      "foobar",
+      "barfoo",
+      "bar"
+    ],
+    "ranked": [
+      "bar",
+      "foobar"
+    ]
+  },
+  {
+    "name": "mixed-smart-case-atoms",
+    "query": "Foo bar",
+    "items": [
+      "foo bar",
+      "Foo BAR",
+      "FOO bar",
+      "bar Foo",
+      "FooBar"
+    ],
+    "ranked": [
+      "Foo BAR",
+      "bar Foo",
+      "FooBar"
+    ]
+  },
+  {
+    "name": "escaped-prefix-marker",
+    "query": "\\^foo",
+    "items": [
+      "^foo",
+      "foo",
+      "a^foo",
+      "foobar"
+    ],
+    "ranked": [
+      "^foo",
+      "a^foo"
+    ]
+  },
+  {
+    "name": "empty-list",
+    "query": "foo",
+    "items": [],
+    "ranked": []
+  },
+  {
+    "name": "empty-preserves-input",
+    "query": "",
+    "items": [
+      "zeta",
+      "alpha",
+      "beta"
+    ],
+    "ranked": [
+      "zeta",
+      "alpha",
+      "beta"
+    ]
+  },
+  {
+    "name": "subsequence-and-boundaries",
+    "query": "tms",
+    "items": [
+      "tmux-sessionizer",
+      "tms",
+      "team-management-system",
+      "atoms",
+      "t-m-s",
+      "TMS"
+    ],
+    "ranked": [
+      "tms",
+      "TMS",
+      "tmux-sessionizer",
+      "t-m-s",
+      "team-management-system",
+      "atoms"
+    ]
+  },
+  {
+    "name": "smart-case-lower",
+    "query": "foo",
+    "items": [
+      "foo",
+      "Foo",
+      "FOO",
+      "foobar",
+      "food",
+      "bar/foo",
+      "f_o_o",
+      "of"
+    ],
+    "ranked": [
+      "foo",
+      "Foo",
+      "FOO",
+      "food",
+      "foobar",
+      "bar/foo",
+      "f_o_o"
+    ]
+  },
+  {
+    "name": "smart-case-upper",
+    "query": "Foo",
+    "items": [
+      "foo",
+      "Foo",
+      "FOO",
+      "FooBar",
+      "bar/Foo"
+    ],
+    "ranked": [
+      "Foo",
+      "FooBar",
+      "bar/Foo"
+    ]
+  },
+  {
+    "name": "path-boundaries",
+    "query": "api",
+    "items": [
+      "api",
+      "my-api",
+      "services/api",
+      "app-interface",
+      "a/p/i",
+      "rapid",
+      "API"
+    ],
+    "ranked": [
+      "api",
+      "API",
+      "services/api",
+      "app-interface",
+      "a/p/i",
+      "my-api",
+      "rapid"
+    ]
+  },
+  {
+    "name": "unicode-normalization",
+    "query": "cafe",
+    "items": [
+      "café",
+      "cafe",
+      "cafeteria",
+      "Café",
+      "caffè"
+    ],
+    "ranked": [
+      "café",
+      "cafe",
+      "Café",
+      "cafeteria",
+      "caffè"
+    ]
+  },
+  {
+    "name": "unicode-exact",
+    "query": "ä",
+    "items": [
+      "a",
+      "ä",
+      "Ä",
+      "bär",
+      "bar"
+    ],
+    "ranked": [
+      "ä",
+      "Ä",
+      "bär"
+    ]
+  },
+  {
+    "name": "multiple-atoms",
+    "query": "foo bar",
+    "items": [
+      "foobar",
+      "barfoo",
+      "foo/bar",
+      "foo bar",
+      "bar foo",
+      "foo",
+      "bar"
+    ],
+    "ranked": [
+      "foo bar",
+      "bar foo",
+      "foo/bar",
+      "foobar",
+      "barfoo"
+    ]
+  },
+  {
+    "name": "inverse-atom",
+    "query": "!test",
+    "items": [
+      "test",
+      "contest",
+      "production",
+      "Test",
+      "alpha"
+    ],
+    "ranked": [
+      "alpha",
+      "production"
+    ]
+  },
+  {
+    "name": "prefix-atom",
+    "query": "^foo",
+    "items": [
+      "foo",
+      "foobar",
+      "barfoo",
+      "Foo",
+      "a/foo"
+    ],
+    "ranked": [
+      "foo",
+      "Foo",
+      "foobar"
+    ]
+  },
+  {
+    "name": "postfix-atom",
+    "query": "foo$",
+    "items": [
+      "foo",
+      "foobar",
+      "barfoo",
+      "Foo",
+      "a/foo"
+    ],
+    "ranked": [
+      "foo",
+      "Foo",
+      "a/foo",
+      "barfoo"
+    ]
+  },
+  {
+    "name": "exact-atom",
+    "query": "'foo",
+    "items": [
+      "foo",
+      "f-o-o",
+      "foobar",
+      "afoo",
+      "Foo"
+    ],
+    "ranked": [
+      "foo",
+      "Foo",
+      "foobar",
+      "afoo"
+    ]
+  },
+  {
+    "name": "no-match",
+    "query": "xyz",
+    "items": [
+      "alpha",
+      "beta",
+      "gamma"
+    ],
+    "ranked": []
+  },
+  {
+    "name": "equal-score-input-ties",
+    "query": "a",
+    "items": [
+      "za",
+      "ya",
+      "xa",
+      "wa",
+      "za"
+    ],
+    "ranked": [
+      "za",
+      "ya",
+      "xa",
+      "wa",
+      "za"
+    ]
+  },
+  {
+    "name": "escaped-space",
+    "query": "foo\\ bar",
+    "items": [
+      "foo bar",
+      "foobar",
+      "foo  bar",
+      "bar foo"
+    ],
+    "ranked": [
+      "foo bar",
+      "foo  bar"
+    ]
+  },
+  {
+    "name": "worktree-separators",
+    "query": "pm",
+    "items": [
+      "project#main",
+      "project-main",
+      "project/main",
+      "project>module",
+      "pm"
+    ],
+    "ranked": [
+      "pm",
+      "project/main",
+      "project#main",
+      "project-main",
+      "project>module"
+    ]
+  }
+]

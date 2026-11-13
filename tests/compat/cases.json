@@ -1,0 +1,441 @@
+[
+  {
+    "name": "help",
+    "steps": [
+      {"argv": ["--help"]},
+      {"argv": ["--version"]},
+      {"argv": ["config", "--help"]},
+      {"argv": ["config", "list", "--help"]},
+      {"argv": ["start", "--help"]},
+      {"argv": ["switch", "--help"]},
+      {"argv": ["windows", "--help"]},
+      {"argv": ["kill", "--help"]},
+      {"argv": ["sessions", "--help"]},
+      {"argv": ["rename", "--help"]},
+      {"argv": ["refresh", "--help"]},
+      {"argv": ["clone-repo", "--help"]},
+      {"argv": ["init-repo", "--help"]},
+      {"argv": ["bookmark", "--help"]},
+      {"argv": ["open-session", "--help"]},
+      {"argv": ["marks", "--help"]},
+      {"argv": ["marks", "set", "--help"]},
+      {"argv": ["marks", "open", "--help"]},
+      {"argv": ["marks", "delete", "--help"]}
+    ]
+  },
+  {
+    "name": "argument-errors",
+    "steps": [
+      {"argv": ["unknown"]},
+      {"argv": ["--unknown"]},
+      {"argv": ["config"]},
+      {"argv": ["rename"]},
+      {"argv": ["clone-repo"]},
+      {"argv": ["init-repo"]},
+      {"argv": ["open-session"]},
+      {"argv": ["marks", "open"]},
+      {"argv": ["marks", "delete"]},
+      {"argv": ["marks", "-1"]},
+      {"argv": ["marks", "set", "abc"]},
+      {"argv": ["config", "--max-depths", "-1"]},
+      {"argv": ["config", "--full-path", "yes"]},
+      {"argv": ["config", "--session-sort-order", "alphabetical"]},
+      {"argv": ["config", "--clone-repo-switch", "never"]},
+      {"argv": ["config", "--picker-border-color", "invalid"]},
+      {"argv": ["config", "--full-path", "true", "list"]}
+    ]
+  },
+  {
+    "name": "config-defaults",
+    "steps": [
+      {"argv": ["config", "list"], "stdout": "toml"},
+      {"argv": ["config", "list", "--defaults"], "stdout": "toml"}
+    ]
+  },
+  {
+    "name": "config-edit",
+    "setup": [["mkdir", "other"]],
+    "steps": [
+      {"argv": ["config", "--paths", "$ROOT/search/", "$ROOT/other", "--max-depths", "2", "--session", "a.b-c", "--excluded", "skip", "vendor", "--full-path", "true", "--search-submodules", "true", "--recursive-submodules", "true", "--switch-filter-unknown", "true", "--session-sort-order", "LastAttached", "--clone-repo-switch", "Foreground", "--enable-list-worktrees", "true", "--picker-border-color", "#112233"]},
+      {"argv": ["config", "list"], "stdout": "toml"},
+      {"argv": ["config", "--excluded", "skip", "--remove", "vendor"]},
+      {"argv": ["config", "--max-depths", "7"]},
+      {"argv": ["config", "list", "--defaults"], "stdout": "toml"}
+    ]
+  },
+  {
+    "name": "config-remove-without-exclusions",
+    "classification": "known-defect",
+    "steps": [{"argv": ["config", "--remove", "missing"]}]
+  },
+  {
+    "name": "config-missing-path",
+    "steps": [{"argv": ["config", "--paths", "$ROOT/missing"]}]
+  },
+  {
+    "name": "invalid-toml",
+    "config": "search_dirs = [\n",
+    "steps": [
+      {"argv": ["config", "list", "--defaults"]},
+      {"argv": ["sessions"]},
+      {"argv": ["--help"]}
+    ]
+  },
+  {
+    "name": "config-type-coercion",
+    "config": "display_full_path = 'yes'\n",
+    "steps": [{"argv": ["config", "list"], "stdout": "toml"}]
+  },
+  {
+    "name": "invalid-config-enum",
+    "config": "vcs_providers = ['svn']\n",
+    "steps": [{"argv": ["config", "list"]}]
+  },
+  {
+    "name": "invalid-config-keymap",
+    "config": "[shortcuts]\n'not-a-key' = 'cancel'\n",
+    "steps": [{"argv": ["config", "list"]}]
+  },
+  {
+    "name": "unknown-config-key",
+    "config": "unknown_key = 123\ninput_position = 'Top'\nvcs_providers = ['jj', 'git']\n[shortcuts]\n'ctrl-q' = 'cancel'\n",
+    "steps": [{"argv": ["config", "list"], "stdout": "toml"}]
+  },
+  {
+    "name": "missing-search",
+    "steps": [
+      {"argv": []},
+      {"argv": ["open-session", "missing"]},
+      {"argv": ["marks"]},
+      {"argv": ["sessions"]}
+    ]
+  },
+  {
+    "name": "invalid-search",
+    "config": "search_paths = ['$ROOT/missing', '$UNSET_COMPAT_VARIABLE']\n",
+    "steps": [
+      {"argv": ["open-session", "missing"]},
+      {"argv": ["--", "tms", "open-session", ""], "env": {"COMPLETE": "bash", "_CLAP_COMPLETE_INDEX": "2"}}
+    ]
+  },
+  {
+    "name": "discovery-depth",
+    "config": "[[search_dirs]]\npath = '$ROOT/search'\ndepth = 1\n",
+    "setup": [
+      ["git", "init", "$ROOT/search/repo"],
+      ["git", "init", "$ROOT/search/group/deep"],
+      ["git", "init", "$ROOT/search/.hidden"],
+      ["git", "init", "$ROOT/search/repo/nested"],
+      ["mkdir", "search/plain"]
+    ],
+    "steps": [
+      {"argv": ["--", "tms", "open-session", ""], "env": {"COMPLETE": "bash", "_CLAP_COMPLETE_INDEX": "2"}},
+      {"argv": ["open-session", "repo"]},
+      {"argv": ["open-session", "deep"]},
+      {"argv": ["open-session", ".hidden"]},
+      {"argv": ["config", "--paths", "$ROOT/search", "--max-depths", "2"]},
+      {"argv": ["--", "tms", "open-session", ""], "env": {"COMPLETE": "bash", "_CLAP_COMPLETE_INDEX": "2"}},
+      {"argv": ["open-session", "nested"]}
+    ]
+  },
+  {
+    "name": "discovery-depth-zero",
+    "config": "[[search_dirs]]\npath = '$ROOT/search/repo'\ndepth = 0\n",
+    "setup": [["git", "init", "$ROOT/search/repo"], ["git", "init", "$ROOT/search/repo/nested"]],
+    "steps": [
+      {"argv": ["--", "tms", "open-session", ""], "env": {"COMPLETE": "bash", "_CLAP_COMPLETE_INDEX": "2"}},
+      {"argv": ["open-session", "repo"]}
+    ]
+  },
+  {
+    "name": "discovery-exclusions",
+    "config": "search_paths = ['$ROOT/search']\nexcluded_dirs = ['skip']\n",
+    "setup": [
+      ["git", "init", "$ROOT/search/keep"],
+      ["git", "init", "$ROOT/search/skip"],
+      ["git", "init", "$ROOT/search/skipper"],
+      ["git", "init", "$ROOT/search/group-skip/deep"],
+      ["git", "init", "$ROOT/search/UPPER-SKIP"]
+    ],
+    "steps": [{"argv": ["--", "tms", "open-session", ""], "env": {"COMPLETE": "bash", "_CLAP_COMPLETE_INDEX": "2"}}]
+  },
+  {
+    "name": "discovery-symlinks",
+    "config": "[[search_dirs]]\npath = '$ROOT/search'\ndepth = 2\n",
+    "setup": [
+      ["git", "init", "$ROOT/outside/real"],
+      ["symlink", "outside/real", "search/alias"],
+      ["symlink", "missing", "search/broken"],
+      ["symlink", "search", "search/cycle"]
+    ],
+    "steps": [
+      {"argv": ["--", "tms", "open-session", ""], "env": {"COMPLETE": "bash", "_CLAP_COMPLETE_INDEX": "2"}},
+      {"argv": ["open-session", "alias"]}
+    ]
+  },
+  {
+    "name": "discovery-duplicate-names",
+    "config": "search_paths = ['$ROOT/search']\n",
+    "setup": [
+      ["git", "init", "$ROOT/search/a/same"],
+      ["git", "init", "$ROOT/search/b/same"],
+      ["git", "init", "$ROOT/search/c/b/same"]
+    ],
+    "steps": [
+      {"argv": ["--", "tms", "open-session", ""], "env": {"COMPLETE": "bash", "_CLAP_COMPLETE_INDEX": "2"}},
+      {"argv": ["open-session", "same"]},
+      {"argv": ["open-session", "search/a/same"]}
+    ]
+  },
+  {
+    "name": "discovery-full-path",
+    "config": "display_full_path = true\nsearch_paths = ['$ROOT/search']\n",
+    "setup": [["git", "init", "$ROOT/search/a.b-c"]],
+    "steps": [
+      {"argv": ["--", "tms", "open-session", ""], "env": {"COMPLETE": "bash", "_CLAP_COMPLETE_INDEX": "2"}},
+      {"argv": ["open-session", "a.b-c"]},
+      {"argv": ["open-session", "$ROOT/search/a.b-c"]}
+    ]
+  },
+  {
+    "name": "discovery-path-expansion",
+    "config": "search_paths = ['~/projects', '$TMS_COMPAT_ROOT/missing']\n[[search_dirs]]\npath = '$TMS_COMPAT_ROOT/search'\ndepth = 1\n",
+    "setup": [["git", "init", "$ROOT/home/projects/home-repo"], ["git", "init", "$ROOT/search/new-repo"]],
+    "steps": [{"argv": ["--", "tms", "open-session", ""], "env": {"COMPLETE": "bash", "_CLAP_COMPLETE_INDEX": "2"}}]
+  },
+  {
+    "name": "git-linked-worktree",
+    "config": "search_paths = ['$ROOT/search']\n",
+    "setup": [
+      ["git", "init", "$ROOT/search/repo"],
+      ["git", "-C", "$ROOT/search/repo", "commit", "--allow-empty", "-m", "initial"],
+      ["git", "-C", "$ROOT/search/repo", "worktree", "add", "-b", "linked", "$ROOT/search/linked"]
+    ],
+    "steps": [
+      {"argv": ["--", "tms", "open-session", ""], "env": {"COMPLETE": "bash", "_CLAP_COMPLETE_INDEX": "2"}},
+      {"argv": ["open-session", "repo"]},
+      {"argv": ["open-session", "linked"]},
+      {"argv": ["open-session", "linked"]},
+      {"argv": ["config", "--enable-list-worktrees", "true"]},
+      {"argv": ["--", "tms", "open-session", ""], "env": {"COMPLETE": "bash", "_CLAP_COMPLETE_INDEX": "2"}}
+    ]
+  },
+  {
+    "name": "git-bare-worktrees",
+    "config": "search_paths = ['$ROOT/search']\n",
+    "setup": [
+      ["git", "init", "--bare", "$ROOT/search/project"],
+      ["git", "-C", "$ROOT/search/project", "worktree", "add", "main"],
+      ["git", "-C", "$ROOT/search/project", "worktree", "add", "topic"]
+    ],
+    "steps": [
+      {"argv": ["--", "tms", "open-session", ""], "env": {"COMPLETE": "bash", "_CLAP_COMPLETE_INDEX": "2"}},
+      {"argv": ["open-session", "project"]},
+      {"argv": ["config", "--enable-list-worktrees", "true"]},
+      {"argv": ["--", "tms", "open-session", ""], "env": {"COMPLETE": "bash", "_CLAP_COMPLETE_INDEX": "2"}},
+      {"argv": ["open-session", "project#main"]}
+    ]
+  },
+  {
+    "name": "gitlink-dot-bare",
+    "config": "search_paths = ['$ROOT/search']\n",
+    "setup": [
+      ["git", "init", "--bare", "$ROOT/search/project/.bare"],
+      ["write", "search/project/.git", "gitdir: .bare\n"]
+    ],
+    "steps": [
+      {"argv": ["--", "tms", "open-session", ""], "env": {"COMPLETE": "bash", "_CLAP_COMPLETE_INDEX": "2"}},
+      {"argv": ["open-session", "project"]}
+    ]
+  },
+  {
+    "name": "git-submodules",
+    "config": "search_paths = ['$ROOT/search']\n",
+    "setup": [
+      ["git", "init", "$ROOT/source"],
+      ["git", "-C", "$ROOT/source", "commit", "--allow-empty", "-m", "initial"],
+      ["git", "init", "$ROOT/search/parent"],
+      ["git", "-C", "$ROOT/search/parent", "-c", "protocol.file.allow=always", "submodule", "add", "$ROOT/source", "modules/child"]
+    ],
+    "steps": [
+      {"argv": ["--", "tms", "open-session", ""], "env": {"COMPLETE": "bash", "_CLAP_COMPLETE_INDEX": "2"}},
+      {"argv": ["config", "--search-submodules", "true"]},
+      {"argv": ["--", "tms", "open-session", ""], "env": {"COMPLETE": "bash", "_CLAP_COMPLETE_INDEX": "2"}},
+      {"argv": ["open-session", "parent>child"]}
+    ]
+  },
+  {
+    "name": "bookmarks",
+    "config": "search_paths = ['$ROOT/search']\n",
+    "setup": [["mkdir", "notes"], ["mkdir", "other"]],
+    "steps": [
+      {"argv": ["bookmark", "$ROOT/notes"]},
+      {"argv": ["bookmark", "$ROOT/notes"]},
+      {"argv": ["bookmark"], "cwd": "other"},
+      {"argv": ["bookmark", "$ROOT/missing"]},
+      {"argv": ["--", "tms", "open-session", ""], "env": {"COMPLETE": "bash", "_CLAP_COMPLETE_INDEX": "2"}},
+      {"argv": ["open-session", "notes"]},
+      {"argv": ["bookmark", "--delete", "$ROOT/notes"]},
+      {"argv": ["bookmark", "--delete", "$ROOT/not-bookmarked"]}
+    ]
+  },
+  {
+    "name": "marks",
+    "setup": [["mkdir", "a.b-c"], ["mkdir", "second"]],
+    "steps": [
+      {"argv": ["marks"]},
+      {"argv": ["marks", "open", "2"]},
+      {"argv": ["marks", "set", "2", "--path", "$ROOT/second"]},
+      {"argv": ["marks", "set", "--path", "$ROOT/a.b-c"]},
+      {"argv": ["marks", "set", "1", "--path", "$ROOT/missing"]},
+      {"argv": ["marks", "list"]},
+      {"argv": ["marks", "set", "--path", "$ROOT/second"]},
+      {"argv": ["marks", "list"]},
+      {"argv": ["marks", "0"]},
+      {"argv": ["marks", "delete", "0"]},
+      {"argv": ["marks", "delete", "99"]},
+      {"argv": ["marks", "delete", "--all"]},
+      {"argv": ["marks", "list"]}
+    ]
+  },
+  {
+    "name": "session-create-script",
+    "config": "search_paths = ['$ROOT/search']\n",
+    "setup": [
+      ["git", "init", "$ROOT/search/a.b-c"],
+      ["write", "search/a.b-c/.tms-create", "printf should-not-run-in-tests\n"]
+    ],
+    "steps": [
+      {"argv": ["open-session", "a.b-c"]},
+      {"argv": ["open-session", "a.b-c"]},
+      {"argv": ["sessions"]}
+    ]
+  },
+  {
+    "name": "session-create-script-override",
+    "config": "search_paths = ['$ROOT/search']\n[session_configs.repo]\ncreate_script = '$ROOT/custom'\n",
+    "setup": [["git", "init", "$ROOT/search/repo"], ["write", "custom", "printf should-not-run-in-tests\n"]],
+    "steps": [{"argv": ["open-session", "repo"]}]
+  },
+  {
+    "name": "outside-tmux",
+    "config": "search_paths = ['$ROOT/search']\n",
+    "setup": [["git", "init", "$ROOT/search/repo"]],
+    "steps": [
+      {"argv": ["open-session", "repo"], "env": {"TERM_PROGRAM": "not-tmux", "TMUX": "/deliberately/not/a/socket,1,0"}},
+      {"argv": ["open-session", "repo"], "env": {"TERM_PROGRAM": "tmux", "TMUX": ""}}
+    ]
+  },
+  {
+    "name": "start-empty",
+    "steps": [{"argv": ["start"]}]
+  },
+  {
+    "name": "start-configured",
+    "config": "[[sessions]]\nname = 'startup'\npath = '$ROOT/search'\n[[sessions.windows]]\nname = 'work'\npath = '$ROOT/search'\ncommand = 'echo startup-command'\n",
+    "steps": [{"argv": ["start"]}]
+  },
+  {
+    "name": "kill-default",
+    "config": "default_session = 'fallback'\n",
+    "setup": [
+      ["tmux", "new-session", "-d", "-s", "fallback", "-c", "$ROOT/search"],
+      ["tmux", "new-session", "-d", "-s", "current", "-c", "$ROOT/search"]
+    ],
+    "steps": [{"argv": ["sessions"]}, {"argv": ["kill"]}]
+  },
+  {
+    "name": "refresh-worktree",
+    "config": "search_paths = ['$ROOT/search']\n",
+    "setup": [
+      ["git", "init", "$ROOT/search/repo"],
+      ["git", "-C", "$ROOT/search/repo", "commit", "--allow-empty", "-m", "initial"],
+      ["git", "-C", "$ROOT/search/repo", "worktree", "add", "-b", "topic", "$ROOT/topic"],
+      ["tmux", "new-session", "-d", "-s", "repo", "-c", "$ROOT/search/repo"]
+    ],
+    "steps": [{"argv": ["refresh"]}, {"argv": ["refresh", "repo"]}]
+  },
+  {
+    "name": "rename",
+    "setup": [
+      ["mkdir", "before-project"],
+      ["tmux", "new-session", "-d", "-s", "before-project", "-c", "$ROOT/before-project"]
+    ],
+    "observe_paths": ["before-project", "after-project"],
+    "steps": [{"argv": ["rename", "after-project"]}]
+  },
+  {
+    "name": "init-repo",
+    "config": "[[search_dirs]]\npath = '$ROOT/search'\ndepth = 1\n",
+    "observe_paths": ["search/fresh/.git"],
+    "steps": [{"argv": ["init-repo", "fresh"]}]
+  },
+  {
+    "name": "clone-local",
+    "config": "clone_repo_switch = 'Never'\n[[search_dirs]]\npath = '$ROOT/search'\ndepth = 1\n",
+    "setup": [
+      ["git", "init", "$ROOT/source"],
+      ["git", "-C", "$ROOT/source", "commit", "--allow-empty", "-m", "initial"]
+    ],
+    "observe_paths": ["search/copied/.git"],
+    "steps": [{"argv": ["clone-repo", "$ROOT/source", "--name", "copied"]}]
+  },
+  {
+    "name": "clone-failure-ignored",
+    "classification": "known-defect",
+    "config": "clone_repo_switch = 'Never'\n[[search_dirs]]\npath = '$ROOT/search'\ndepth = 1\n",
+    "observe_paths": ["search/failed", "search/failed/.git"],
+    "steps": [{"argv": ["clone-repo", "$ROOT/does-not-exist", "--name", "failed"]}]
+  },
+  {
+    "name": "rename-move-failure-ignored",
+    "classification": "known-defect",
+    "setup": [
+      ["mkdir", "before-project"],
+      ["write", "after-project", "blocking file\n"],
+      ["tmux", "new-session", "-d", "-s", "before-project", "-c", "$ROOT/before-project"]
+    ],
+    "observe_paths": ["before-project", "after-project"],
+    "steps": [{"argv": ["rename", "after-project"]}]
+  },
+  {
+    "name": "rename-global-replacement",
+    "classification": "known-defect",
+    "setup": [
+      ["mkdir", "prefix-before-project/before-project"],
+      ["mkdir", "prefix-after-project"],
+      ["tmux", "new-session", "-d", "-s", "before-project", "-c", "$ROOT/prefix-before-project/before-project"]
+    ],
+    "observe_paths": ["prefix-before-project/before-project", "prefix-after-project/after-project"],
+    "steps": [{"argv": ["rename", "after-project"]}]
+  },
+  {
+    "name": "invalid-config-type",
+    "config": "display_full_path = []\n",
+    "steps": [{"argv": ["config", "list"]}]
+  },
+  {
+    "name": "jj-workspaces",
+    "requires": "jj",
+    "config": "vcs_providers = ['jj', 'git']\nsearch_paths = ['$ROOT/search']\n",
+    "setup": [
+      ["jj", "git", "init", "--no-colocate", "$ROOT/search/project"],
+      ["jj", "-R", "$ROOT/search/project", "workspace", "add", "$ROOT/search/linked"]
+    ],
+    "steps": [
+      {"argv": ["--", "tms", "open-session", ""], "env": {"COMPLETE": "bash", "_CLAP_COMPLETE_INDEX": "2"}},
+      {"argv": ["open-session", "linked"]},
+      {"argv": ["open-session", "project"]},
+      {"argv": ["config", "--enable-list-worktrees", "true"]},
+      {"argv": ["--", "tms", "open-session", ""], "env": {"COMPLETE": "bash", "_CLAP_COMPLETE_INDEX": "2"}},
+      {"argv": ["open-session", "project"]}
+    ]
+  },
+  {
+    "name": "jj-default-provider",
+    "requires": "jj",
+    "config": "search_paths = ['$ROOT/search']\n",
+    "setup": [["jj", "git", "init", "--no-colocate", "$ROOT/search/project"]],
+    "steps": [{"argv": ["--", "tms", "open-session", ""], "env": {"COMPLETE": "bash", "_CLAP_COMPLETE_INDEX": "2"}}]
+  }
+]

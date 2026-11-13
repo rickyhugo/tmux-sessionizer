@@ -1,0 +1,4434 @@
+{
+  "help": [
+    {
+      "argv": [
+        "--help"
+      ],
+      "stdout": "Scan for all git folders in specified directories, select one and open it as a new tmux session\n\nUsage: tms [COMMAND]\n\nCommands:\n  config        Configure the defaults for search paths and excluded directories\n  start         Initialize tmux with the default sessions\n  switch        Display other sessions with a fuzzy finder and a preview window\n  windows       Display the current session's windows with a fuzzy finder and a preview window\n  kill          Kill the current tmux session and jump to another\n  sessions      Show running tmux sessions with asterisk on the current session\n  rename        Rename the active session and the working directory\n  refresh       Creates new worktree windows for the selected session\n  clone-repo    Clone repository and create a new session for it\n  init-repo     Initialize empty repository\n  bookmark      Bookmark a directory so it is available to select along with the Git repositories\n  open-session  Open a session\n  marks         Manage list of sessions that can be instantly accessed by their index\n  help          Print this message or the help of the given subcommand(s)\n\nOptions:\n  -h, --help     Print help\n  -V, --version  Print version\n",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "--version"
+      ],
+      "stdout": "tmux-sessionizer 0.6.1\n",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "config",
+        "--help"
+      ],
+      "stdout": "Configure the defaults for search paths and excluded directories\n\nUsage: tms config [OPTIONS]\n       tms config <COMMAND>\n\nCommands:\n  list  List current config including all default values\n  help  Print this message or the help of the given subcommand(s)\n\nOptions:\n  -p, --paths <search paths>...\n          The paths to search through. Shell like expansions such as '~' are supported\n  -s, --session <default session>\n          The default session to switch to (if available) when killing another session\n      --excluded <excluded dirs>...\n          As many directory names as desired to not be searched over\n      --remove <remove dir>...\n          As many directory names to be removed from exclusion list\n      --full-path <true | false>\n          Use the full path when displaying directories [possible values: true, false]\n      --search-submodules <true | false>\n          Also show initialized submodules [possible values: true, false]\n      --recursive-submodules <true | false>\n          Search submodules for submodules [possible values: true, false]\n      --switch-filter-unknown <true | false>\n          Only include sessions from search paths in the switcher [possible values: true, false]\n  -d, --max-depths <max depth>...\n          The maximum depth to traverse when searching for repositories in search paths, length should match the number of search paths if specified (defaults to 10)\n      --picker-highlight-color <#rrggbb>\n          Background color of the highlighted item in the picker\n      --picker-highlight-text-color <#rrggbb>\n          Text color of the highlighted item in the picker\n      --picker-border-color <#rrggbb>\n          Color of the borders between widgets in the picker\n      --picker-info-color <#rrggbb>\n          Color of the item count in the picker\n      --picker-prompt-color <#rrggbb>\n          Color of the prompt in the picker\n      --session-sort-order <Alphabetical | LastAttached>\n          Set the sort order of the sessions in the switch command [possible values: Alphabetical, LastAttached]\n      --clone-repo-switch <Always | Never | Foreground>\n          Whether to automatically switch to the new session after the `clone-repo` command finishes\n          `Always` will always switch tmux to the new session\n          `Never` will always create the new session in the background\n          When set to `Foreground`, the new session will only be opened in the background if the active\n          tmux session has changed since starting the clone process (for long clone processes on larger repos) [possible values: Always, Never, Foreground]\n      --enable-list-worktrees <true | false>\n          Enable listing of woktrees for bare repositories [possible values: true, false]\n  -h, --help\n          Print help\n",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "config",
+        "list",
+        "--help"
+      ],
+      "stdout": "List current config including all default values\n\nUsage: tms config list [OPTIONS]\n\nOptions:\n  -d, --defaults  List only defaults without user set values\n  -h, --help      Print help\n",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "start",
+        "--help"
+      ],
+      "stdout": "Initialize tmux with the default sessions\n\nUsage: tms start\n\nOptions:\n  -h, --help  Print help\n",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "switch",
+        "--help"
+      ],
+      "stdout": "Display other sessions with a fuzzy finder and a preview window\n\nUsage: tms switch\n\nOptions:\n  -h, --help  Print help\n",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "windows",
+        "--help"
+      ],
+      "stdout": "Display the current session's windows with a fuzzy finder and a preview window\n\nUsage: tms windows\n\nOptions:\n  -h, --help  Print help\n",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "kill",
+        "--help"
+      ],
+      "stdout": "Kill the current tmux session and jump to another\n\nUsage: tms kill\n\nOptions:\n  -h, --help  Print help\n",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "sessions",
+        "--help"
+      ],
+      "stdout": "Show running tmux sessions with asterisk on the current session\n\nUsage: tms sessions\n\nOptions:\n  -h, --help  Print help\n",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "rename",
+        "--help"
+      ],
+      "stdout": "Rename the active session and the working directory\n\nUsage: tms rename <NAME>\n\nArguments:\n  <NAME>  The new session's name\n\nOptions:\n  -h, --help  Print help\n",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "refresh",
+        "--help"
+      ],
+      "stdout": "Creates new worktree windows for the selected session\n\nUsage: tms refresh [NAME]\n\nArguments:\n  [NAME]  The session's name. If not provided gets current session\n\nOptions:\n  -h, --help  Print help\n",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "clone-repo",
+        "--help"
+      ],
+      "stdout": "Clone repository and create a new session for it\n\nUsage: tms clone-repo [OPTIONS] <REPOSITORY>\n\nArguments:\n  <REPOSITORY>  Git repository to clone\n\nOptions:\n      --path <PATH>  Directory to create new repository in, if left empty will pick default search path or prompt if multiple are configured\n      --name <NAME>  Name of cloned repository directory, will be picked based on remote url if left empty\n  -h, --help         Print help\n",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "init-repo",
+        "--help"
+      ],
+      "stdout": "Initialize empty repository\n\nUsage: tms init-repo <REPOSITORY>\n\nArguments:\n  <REPOSITORY>  Name of the repository to initialize\n\nOptions:\n  -h, --help  Print help\n",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "bookmark",
+        "--help"
+      ],
+      "stdout": "Bookmark a directory so it is available to select along with the Git repositories\n\nUsage: tms bookmark [OPTIONS] [PATH]\n\nArguments:\n  [PATH]  Path to bookmark, if left empty bookmark the current directory\n\nOptions:\n  -d, --delete  Delete instead of add a bookmark\n  -h, --help    Print help\n",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "open-session",
+        "--help"
+      ],
+      "stdout": "Open a session\n\nUsage: tms open-session <SESSION>\n\nArguments:\n  <SESSION>  Name of the session to open\n\nOptions:\n  -h, --help  Print help\n",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "marks",
+        "--help"
+      ],
+      "stdout": "Manage list of sessions that can be instantly accessed by their index\n\nUsage: tms marks [INDEX]\n       tms marks <COMMAND>\n\nCommands:\n  list    List all marks\n  set     Add a session mark\n  open    Open the session at index\n  delete  Delete marks\n  help    Print this message or the help of the given subcommand(s)\n\nArguments:\n  [INDEX]  The index of the mark to open\n\nOptions:\n  -h, --help  Print help\n",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "marks",
+        "set",
+        "--help"
+      ],
+      "stdout": "Add a session mark\n\nUsage: tms marks set [OPTIONS] [INDEX]\n\nArguments:\n  [INDEX]  Index of mark to set, if empty will append after the last item\n\nOptions:\n  -p, --path <PATH>  Path to project directory, if empty will use the current directory\n  -h, --help         Print help\n",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "marks",
+        "open",
+        "--help"
+      ],
+      "stdout": "Open the session at index\n\nUsage: tms marks open <INDEX>\n\nArguments:\n  <INDEX>  The index of the mark to open\n\nOptions:\n  -h, --help  Print help\n",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "marks",
+        "delete",
+        "--help"
+      ],
+      "stdout": "Delete marks\n\nUsage: tms marks delete <INDEX|--all>\n\nArguments:\n  [INDEX]  Index of mark to delete\n\nOptions:\n  -a, --all   Delete all items\n  -h, --help  Print help\n",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    }
+  ],
+  "argument-errors": [
+    {
+      "argv": [
+        "unknown"
+      ],
+      "stdout": "",
+      "stderr": "error: unrecognized subcommand 'unknown'\n\nUsage: tms [COMMAND]\n\nFor more information, try '--help'.\n",
+      "exit": 2,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "--unknown"
+      ],
+      "stdout": "",
+      "stderr": "error: unexpected argument '--unknown' found\n\nUsage: tms [COMMAND]\n\nFor more information, try '--help'.\n",
+      "exit": 2,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "config"
+      ],
+      "stdout": "",
+      "stderr": "Configure the defaults for search paths and excluded directories\n\nUsage: tms config [OPTIONS]\n       tms config <COMMAND>\n\nCommands:\n  list  List current config including all default values\n  help  Print this message or the help of the given subcommand(s)\n\nOptions:\n  -p, --paths <search paths>...\n          The paths to search through. Shell like expansions such as '~' are supported\n  -s, --session <default session>\n          The default session to switch to (if available) when killing another session\n      --excluded <excluded dirs>...\n          As many directory names as desired to not be searched over\n      --remove <remove dir>...\n          As many directory names to be removed from exclusion list\n      --full-path <true | false>\n          Use the full path when displaying directories [possible values: true, false]\n      --search-submodules <true | false>\n          Also show initialized submodules [possible values: true, false]\n      --recursive-submodules <true | false>\n          Search submodules for submodules [possible values: true, false]\n      --switch-filter-unknown <true | false>\n          Only include sessions from search paths in the switcher [possible values: true, false]\n  -d, --max-depths <max depth>...\n          The maximum depth to traverse when searching for repositories in search paths, length should match the number of search paths if specified (defaults to 10)\n      --picker-highlight-color <#rrggbb>\n          Background color of the highlighted item in the picker\n      --picker-highlight-text-color <#rrggbb>\n          Text color of the highlighted item in the picker\n      --picker-border-color <#rrggbb>\n          Color of the borders between widgets in the picker\n      --picker-info-color <#rrggbb>\n          Color of the item count in the picker\n      --picker-prompt-color <#rrggbb>\n          Color of the prompt in the picker\n      --session-sort-order <Alphabetical | LastAttached>\n          Set the sort order of the sessions in the switch command [possible values: Alphabetical, LastAttached]\n      --clone-repo-switch <Always | Never | Foreground>\n          Whether to automatically switch to the new session after the `clone-repo` command finishes\n          `Always` will always switch tmux to the new session\n          `Never` will always create the new session in the background\n          When set to `Foreground`, the new session will only be opened in the background if the active\n          tmux session has changed since starting the clone process (for long clone processes on larger repos) [possible values: Always, Never, Foreground]\n      --enable-list-worktrees <true | false>\n          Enable listing of woktrees for bare repositories [possible values: true, false]\n  -h, --help\n          Print help\n",
+      "exit": 2,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "rename"
+      ],
+      "stdout": "",
+      "stderr": "Rename the active session and the working directory\n\nUsage: tms rename <NAME>\n\nArguments:\n  <NAME>  The new session's name\n\nOptions:\n  -h, --help  Print help\n",
+      "exit": 2,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "clone-repo"
+      ],
+      "stdout": "",
+      "stderr": "error: the following required arguments were not provided:\n  <REPOSITORY>\n\nUsage: tms clone-repo <REPOSITORY>\n\nFor more information, try '--help'.\n",
+      "exit": 2,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "init-repo"
+      ],
+      "stdout": "",
+      "stderr": "error: the following required arguments were not provided:\n  <REPOSITORY>\n\nUsage: tms init-repo <REPOSITORY>\n\nFor more information, try '--help'.\n",
+      "exit": 2,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "open-session"
+      ],
+      "stdout": "",
+      "stderr": "error: the following required arguments were not provided:\n  <SESSION>\n\nUsage: tms open-session <SESSION>\n\nFor more information, try '--help'.\n",
+      "exit": 2,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "marks",
+        "open"
+      ],
+      "stdout": "",
+      "stderr": "error: the following required arguments were not provided:\n  <INDEX>\n\nUsage: tms marks open <INDEX>\n\nFor more information, try '--help'.\n",
+      "exit": 2,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "marks",
+        "delete"
+      ],
+      "stdout": "",
+      "stderr": "error: the following required arguments were not provided:\n  <INDEX|--all>\n\nUsage: tms marks delete <INDEX|--all>\n\nFor more information, try '--help'.\n",
+      "exit": 2,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "marks",
+        "-1"
+      ],
+      "stdout": "",
+      "stderr": "error: unexpected argument '-1' found\n\n  tip: to pass '-1' as a value, use '-- -1'\n\nUsage: tms marks [INDEX]\n       tms marks <COMMAND>\n\nFor more information, try '--help'.\n",
+      "exit": 2,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "marks",
+        "set",
+        "abc"
+      ],
+      "stdout": "",
+      "stderr": "error: invalid value 'abc' for '[INDEX]': invalid digit found in string\n\nFor more information, try '--help'.\n",
+      "exit": 2,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "config",
+        "--max-depths",
+        "-1"
+      ],
+      "stdout": "",
+      "stderr": "error: unexpected argument '-1' found\n\nUsage: tms config [OPTIONS]\n       tms config <COMMAND>\n\nFor more information, try '--help'.\n",
+      "exit": 2,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "config",
+        "--full-path",
+        "yes"
+      ],
+      "stdout": "",
+      "stderr": "error: invalid value 'yes' for '--full-path <true | false>'\n  [possible values: true, false]\n\nFor more information, try '--help'.\n",
+      "exit": 2,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "config",
+        "--session-sort-order",
+        "alphabetical"
+      ],
+      "stdout": "",
+      "stderr": "error: invalid value 'alphabetical' for '--session-sort-order <Alphabetical | LastAttached>'\n  [possible values: Alphabetical, LastAttached]\n\n  tip: a similar value exists: 'Alphabetical'\n\nFor more information, try '--help'.\n",
+      "exit": 2,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "config",
+        "--clone-repo-switch",
+        "never"
+      ],
+      "stdout": "",
+      "stderr": "error: invalid value 'never' for '--clone-repo-switch <Always | Never | Foreground>'\n  [possible values: Always, Never, Foreground]\n\n  tip: a similar value exists: 'Never'\n\nFor more information, try '--help'.\n",
+      "exit": 2,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "config",
+        "--picker-border-color",
+        "invalid"
+      ],
+      "stdout": "",
+      "stderr": "error: invalid value 'invalid' for '--picker-border-color <#rrggbb>': Failed to parse Colors\n\nFor more information, try '--help'.\n",
+      "exit": 2,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "config",
+        "--full-path",
+        "true",
+        "list"
+      ],
+      "stdout": "",
+      "stderr": "error: the subcommand 'list' cannot be used with '--full-path <true | false>'\n\nUsage: tms config [OPTIONS]\n       tms config <COMMAND>\n\nFor more information, try '--help'.\n",
+      "exit": 2,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    }
+  ],
+  "config-defaults": [
+    {
+      "argv": [
+        "config",
+        "list"
+      ],
+      "stdout": {
+        "display_full_path": false,
+        "search_submodules": false,
+        "recursive_submodules": false,
+        "switch_filter_unknown": false,
+        "session_sort_order": "Alphabetical",
+        "excluded_dirs": [],
+        "search_dirs": [],
+        "sessions": [],
+        "bookmarks": [],
+        "clone_repo_switch": "Always",
+        "vcs_providers": [
+          "git"
+        ],
+        "list_worktrees": false,
+        "picker_colors": {
+          "highlight_color": "LightBlue",
+          "highlight_text_color": "Black",
+          "border_color": "DarkGray",
+          "info_color": "LightYellow",
+          "prompt_color": "LightGreen"
+        },
+        "shortcuts": {
+          "backspace": "backspace",
+          "ctrl-a": "move_to_line_start",
+          "ctrl-c": "cancel",
+          "ctrl-d": "delete",
+          "ctrl-e": "move_to_line_end",
+          "ctrl-j": "move_down",
+          "ctrl-k": "move_up",
+          "ctrl-n": "move_down",
+          "ctrl-p": "move_up",
+          "ctrl-u": "delete_to_line_start",
+          "ctrl-w": "delete_word",
+          "delete": "delete",
+          "down": "move_down",
+          "enter": "confirm",
+          "esc": "cancel",
+          "left": "cursor_left",
+          "right": "cursor_right",
+          "up": "move_up"
+        },
+        "session_configs": {},
+        "marks": {}
+      },
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "config",
+        "list",
+        "--defaults"
+      ],
+      "stdout": {
+        "display_full_path": false,
+        "search_submodules": false,
+        "recursive_submodules": false,
+        "switch_filter_unknown": false,
+        "session_sort_order": "Alphabetical",
+        "excluded_dirs": [],
+        "search_dirs": [],
+        "sessions": [],
+        "bookmarks": [],
+        "clone_repo_switch": "Always",
+        "vcs_providers": [
+          "git"
+        ],
+        "list_worktrees": false,
+        "picker_colors": {
+          "highlight_color": "LightBlue",
+          "highlight_text_color": "Black",
+          "border_color": "DarkGray",
+          "info_color": "LightYellow",
+          "prompt_color": "LightGreen"
+        },
+        "shortcuts": {
+          "backspace": "backspace",
+          "ctrl-a": "move_to_line_start",
+          "ctrl-c": "cancel",
+          "ctrl-d": "delete",
+          "ctrl-e": "move_to_line_end",
+          "ctrl-j": "move_down",
+          "ctrl-k": "move_up",
+          "ctrl-n": "move_down",
+          "ctrl-p": "move_up",
+          "ctrl-u": "delete_to_line_start",
+          "ctrl-w": "delete_word",
+          "delete": "delete",
+          "down": "move_down",
+          "enter": "confirm",
+          "esc": "cancel",
+          "left": "cursor_left",
+          "right": "cursor_right",
+          "up": "move_up"
+        },
+        "session_configs": {},
+        "marks": {}
+      },
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    }
+  ],
+  "config-edit": [
+    {
+      "argv": [
+        "config",
+        "--paths",
+        "$ROOT/search/",
+        "$ROOT/other",
+        "--max-depths",
+        "2",
+        "--session",
+        "a.b-c",
+        "--excluded",
+        "skip",
+        "vendor",
+        "--full-path",
+        "true",
+        "--search-submodules",
+        "true",
+        "--recursive-submodules",
+        "true",
+        "--switch-filter-unknown",
+        "true",
+        "--session-sort-order",
+        "LastAttached",
+        "--clone-repo-switch",
+        "Foreground",
+        "--enable-list-worktrees",
+        "true",
+        "--picker-border-color",
+        "#112233"
+      ],
+      "stdout": "Configuration has been stored\n",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "default_session": "a_b-c",
+          "display_full_path": true,
+          "search_submodules": true,
+          "recursive_submodules": true,
+          "switch_filter_unknown": true,
+          "session_sort_order": "LastAttached",
+          "excluded_dirs": [
+            "skip",
+            "vendor"
+          ],
+          "clone_repo_switch": "Foreground",
+          "list_worktrees": true,
+          "search_dirs": [
+            {
+              "path": "$ROOT/search",
+              "depth": 2
+            },
+            {
+              "path": "$ROOT/other",
+              "depth": 10
+            }
+          ],
+          "picker_colors": {
+            "border_color": "#112233"
+          }
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "config",
+        "list"
+      ],
+      "stdout": {
+        "default_session": "a_b-c",
+        "display_full_path": true,
+        "search_submodules": true,
+        "recursive_submodules": true,
+        "switch_filter_unknown": true,
+        "session_sort_order": "LastAttached",
+        "excluded_dirs": [
+          "skip",
+          "vendor"
+        ],
+        "sessions": [],
+        "bookmarks": [],
+        "clone_repo_switch": "Foreground",
+        "vcs_providers": [
+          "git"
+        ],
+        "list_worktrees": true,
+        "search_dirs": [
+          {
+            "path": "$ROOT/search",
+            "depth": 2
+          },
+          {
+            "path": "$ROOT/other",
+            "depth": 10
+          }
+        ],
+        "picker_colors": {
+          "highlight_color": "LightBlue",
+          "highlight_text_color": "Black",
+          "border_color": "#112233",
+          "info_color": "LightYellow",
+          "prompt_color": "LightGreen"
+        },
+        "shortcuts": {
+          "backspace": "backspace",
+          "ctrl-a": "move_to_line_start",
+          "ctrl-c": "cancel",
+          "ctrl-d": "delete",
+          "ctrl-e": "move_to_line_end",
+          "ctrl-j": "move_down",
+          "ctrl-k": "move_up",
+          "ctrl-n": "move_down",
+          "ctrl-p": "move_up",
+          "ctrl-u": "delete_to_line_start",
+          "ctrl-w": "delete_word",
+          "delete": "delete",
+          "down": "move_down",
+          "enter": "confirm",
+          "esc": "cancel",
+          "left": "cursor_left",
+          "right": "cursor_right",
+          "up": "move_up"
+        },
+        "session_configs": {},
+        "marks": {}
+      },
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "default_session": "a_b-c",
+          "display_full_path": true,
+          "search_submodules": true,
+          "recursive_submodules": true,
+          "switch_filter_unknown": true,
+          "session_sort_order": "LastAttached",
+          "excluded_dirs": [
+            "skip",
+            "vendor"
+          ],
+          "clone_repo_switch": "Foreground",
+          "list_worktrees": true,
+          "search_dirs": [
+            {
+              "path": "$ROOT/search",
+              "depth": 2
+            },
+            {
+              "path": "$ROOT/other",
+              "depth": 10
+            }
+          ],
+          "picker_colors": {
+            "border_color": "#112233"
+          }
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "config",
+        "--excluded",
+        "skip",
+        "--remove",
+        "vendor"
+      ],
+      "stdout": "Configuration has been stored\n",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "default_session": "a_b-c",
+          "display_full_path": true,
+          "search_submodules": true,
+          "recursive_submodules": true,
+          "switch_filter_unknown": true,
+          "session_sort_order": "LastAttached",
+          "excluded_dirs": [
+            "skip",
+            "skip"
+          ],
+          "clone_repo_switch": "Foreground",
+          "list_worktrees": true,
+          "search_dirs": [
+            {
+              "path": "$ROOT/search",
+              "depth": 2
+            },
+            {
+              "path": "$ROOT/other",
+              "depth": 10
+            }
+          ],
+          "picker_colors": {
+            "border_color": "#112233"
+          }
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "config",
+        "--max-depths",
+        "7"
+      ],
+      "stdout": "Configuration has been stored\n",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "default_session": "a_b-c",
+          "display_full_path": true,
+          "search_submodules": true,
+          "recursive_submodules": true,
+          "switch_filter_unknown": true,
+          "session_sort_order": "LastAttached",
+          "excluded_dirs": [
+            "skip",
+            "skip"
+          ],
+          "clone_repo_switch": "Foreground",
+          "list_worktrees": true,
+          "search_dirs": [
+            {
+              "path": "$ROOT/search",
+              "depth": 2
+            },
+            {
+              "path": "$ROOT/other",
+              "depth": 10
+            }
+          ],
+          "picker_colors": {
+            "border_color": "#112233"
+          }
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "config",
+        "list",
+        "--defaults"
+      ],
+      "stdout": {
+        "display_full_path": false,
+        "search_submodules": false,
+        "recursive_submodules": false,
+        "switch_filter_unknown": false,
+        "session_sort_order": "Alphabetical",
+        "excluded_dirs": [],
+        "search_dirs": [],
+        "sessions": [],
+        "bookmarks": [],
+        "clone_repo_switch": "Always",
+        "vcs_providers": [
+          "git"
+        ],
+        "list_worktrees": false,
+        "picker_colors": {
+          "highlight_color": "LightBlue",
+          "highlight_text_color": "Black",
+          "border_color": "DarkGray",
+          "info_color": "LightYellow",
+          "prompt_color": "LightGreen"
+        },
+        "shortcuts": {
+          "backspace": "backspace",
+          "ctrl-a": "move_to_line_start",
+          "ctrl-c": "cancel",
+          "ctrl-d": "delete",
+          "ctrl-e": "move_to_line_end",
+          "ctrl-j": "move_down",
+          "ctrl-k": "move_up",
+          "ctrl-n": "move_down",
+          "ctrl-p": "move_up",
+          "ctrl-u": "delete_to_line_start",
+          "ctrl-w": "delete_word",
+          "delete": "delete",
+          "down": "move_down",
+          "enter": "confirm",
+          "esc": "cancel",
+          "left": "cursor_left",
+          "right": "cursor_right",
+          "up": "move_up"
+        },
+        "session_configs": {},
+        "marks": {}
+      },
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "default_session": "a_b-c",
+          "display_full_path": true,
+          "search_submodules": true,
+          "recursive_submodules": true,
+          "switch_filter_unknown": true,
+          "session_sort_order": "LastAttached",
+          "excluded_dirs": [
+            "skip",
+            "skip"
+          ],
+          "clone_repo_switch": "Foreground",
+          "list_worktrees": true,
+          "search_dirs": [
+            {
+              "path": "$ROOT/search",
+              "depth": 2
+            },
+            {
+              "path": "$ROOT/other",
+              "depth": 10
+            }
+          ],
+          "picker_colors": {
+            "border_color": "#112233"
+          }
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    }
+  ],
+  "config-remove-without-exclusions": [
+    {
+      "argv": [
+        "config",
+        "--remove",
+        "missing"
+      ],
+      "stdout": "",
+      "stderr": "\npanic:\nnot yet implemented\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n",
+      "exit": 101,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    }
+  ],
+  "config-missing-path": [
+    {
+      "argv": [
+        "config",
+        "--paths",
+        "$ROOT/missing"
+      ],
+      "stdout": "",
+      "stderr": "Error: IO Error\n╰─▶ No such file or directory (os error 2)\n",
+      "exit": 1,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    }
+  ],
+  "invalid-toml": [
+    {
+      "argv": [
+        "config",
+        "list",
+        "--defaults"
+      ],
+      "stdout": "",
+      "stderr": "Error: Config Error\n├─▶ Could not load configuration\n│   ╰╴Could not parse configuration\n╰─▶ TOML parse error at line 1, column 17\n      |\n    1 | search_dirs = [\n      |                 ^\n    unclosed array, expected `]`\n     in config.toml\n",
+      "exit": 1,
+      "state": {
+        "config": {
+          "invalid_toml": "search_dirs = [\n"
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "sessions"
+      ],
+      "stdout": "",
+      "stderr": "Error: Config Error\n├─▶ Could not load configuration\n│   ╰╴Could not parse configuration\n╰─▶ TOML parse error at line 1, column 17\n      |\n    1 | search_dirs = [\n      |                 ^\n    unclosed array, expected `]`\n     in config.toml\n",
+      "exit": 1,
+      "state": {
+        "config": {
+          "invalid_toml": "search_dirs = [\n"
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "--help"
+      ],
+      "stdout": "Scan for all git folders in specified directories, select one and open it as a new tmux session\n\nUsage: tms [COMMAND]\n\nCommands:\n  config        Configure the defaults for search paths and excluded directories\n  start         Initialize tmux with the default sessions\n  switch        Display other sessions with a fuzzy finder and a preview window\n  windows       Display the current session's windows with a fuzzy finder and a preview window\n  kill          Kill the current tmux session and jump to another\n  sessions      Show running tmux sessions with asterisk on the current session\n  rename        Rename the active session and the working directory\n  refresh       Creates new worktree windows for the selected session\n  clone-repo    Clone repository and create a new session for it\n  init-repo     Initialize empty repository\n  bookmark      Bookmark a directory so it is available to select along with the Git repositories\n  open-session  Open a session\n  marks         Manage list of sessions that can be instantly accessed by their index\n  help          Print this message or the help of the given subcommand(s)\n\nOptions:\n  -h, --help     Print help\n  -V, --version  Print version\n",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "invalid_toml": "search_dirs = [\n"
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    }
+  ],
+  "invalid-config-type": [
+    {
+      "argv": [
+        "config",
+        "list"
+      ],
+      "stdout": "",
+      "stderr": "Error: Config Error\n├─▶ Could not load configuration\n│   ╰╴Could not deserialize configuration\n╰─▶ invalid type: sequence, expected a boolean for key `display_full_path` in config.toml\n",
+      "exit": 1,
+      "state": {
+        "config": {
+          "display_full_path": []
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    }
+  ],
+  "invalid-config-enum": [
+    {
+      "argv": [
+        "config",
+        "list"
+      ],
+      "stdout": "",
+      "stderr": "Error: Config Error\n├─▶ Could not load configuration\n│   ╰╴Could not deserialize configuration\n╰─▶ enum VcsProviders does not have variant constructor svn for key `vcs_providers[0]`\n",
+      "exit": 1,
+      "state": {
+        "config": {
+          "vcs_providers": [
+            "svn"
+          ]
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    }
+  ],
+  "invalid-config-keymap": [
+    {
+      "argv": [
+        "config",
+        "list"
+      ],
+      "stdout": "",
+      "stderr": "Error: Config Error\n├─▶ Could not load configuration\n│   ╰╴Could not deserialize configuration\n╰─▶ Config Error for key `shortcuts`\n",
+      "exit": 1,
+      "state": {
+        "config": {
+          "shortcuts": {
+            "not-a-key": "cancel"
+          }
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    }
+  ],
+  "unknown-config-key": [
+    {
+      "argv": [
+        "config",
+        "list"
+      ],
+      "stdout": {
+        "display_full_path": false,
+        "search_submodules": false,
+        "recursive_submodules": false,
+        "switch_filter_unknown": false,
+        "session_sort_order": "Alphabetical",
+        "excluded_dirs": [],
+        "search_dirs": [],
+        "sessions": [],
+        "bookmarks": [],
+        "clone_repo_switch": "Always",
+        "vcs_providers": [
+          "jujutsu",
+          "git"
+        ],
+        "list_worktrees": false,
+        "picker_colors": {
+          "highlight_color": "LightBlue",
+          "highlight_text_color": "Black",
+          "border_color": "DarkGray",
+          "info_color": "LightYellow",
+          "prompt_color": "LightGreen"
+        },
+        "shortcuts": {
+          "backspace": "backspace",
+          "ctrl-a": "move_to_line_start",
+          "ctrl-c": "cancel",
+          "ctrl-d": "delete",
+          "ctrl-e": "move_to_line_end",
+          "ctrl-j": "move_down",
+          "ctrl-k": "move_up",
+          "ctrl-n": "move_down",
+          "ctrl-p": "move_up",
+          "ctrl-q": "cancel",
+          "ctrl-u": "delete_to_line_start",
+          "ctrl-w": "delete_word",
+          "delete": "delete",
+          "down": "move_down",
+          "enter": "confirm",
+          "esc": "cancel",
+          "left": "cursor_left",
+          "right": "cursor_right",
+          "up": "move_up"
+        },
+        "session_configs": {},
+        "marks": {}
+      },
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "unknown_key": 123,
+          "input_position": "Top",
+          "vcs_providers": [
+            "jj",
+            "git"
+          ],
+          "shortcuts": {
+            "ctrl-q": "cancel"
+          }
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    }
+  ],
+  "missing-search": [
+    {
+      "argv": [],
+      "stdout": "",
+      "stderr": "Error: Config Error\n╰─▶ No default search path was found\n    ╰╴You must configure at least one default search path with the `config` subcommand. E.g `tms config` \n",
+      "exit": 1,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "open-session",
+        "missing"
+      ],
+      "stdout": "",
+      "stderr": "Error: Config Error\n╰─▶ No default search path was found\n    ╰╴You must configure at least one default search path with the `config` subcommand. E.g `tms config` \n",
+      "exit": 1,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "marks"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "sessions"
+      ],
+      "stdout": "* \n",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    }
+  ],
+  "invalid-search": [
+    {
+      "argv": [
+        "open-session",
+        "missing"
+      ],
+      "stdout": "",
+      "stderr": "Error: Config Error\n╰─▶ No valid search path was found\n    ╰╴You must configure at least one valid search path with the `config` subcommand. E.g `tms config` \n",
+      "exit": 1,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/missing",
+            "$UNSET_COMPAT_VARIABLE"
+          ]
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "--",
+        "tms",
+        "open-session",
+        ""
+      ],
+      "stdout": "--help",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/missing",
+            "$UNSET_COMPAT_VARIABLE"
+          ]
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    }
+  ],
+  "discovery-depth": [
+    {
+      "argv": [
+        "--",
+        "tms",
+        "open-session",
+        ""
+      ],
+      "stdout": ".hidden\nrepo\n--help",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_dirs": [
+            {
+              "path": "$ROOT/search",
+              "depth": 1
+            }
+          ]
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "open-session",
+        "repo"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_dirs": [
+            {
+              "path": "$ROOT/search",
+              "depth": 1
+            }
+          ]
+        },
+        "sessions": [
+          {
+            "name": "repo",
+            "path": "$ROOT/search/repo",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/repo"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "repo"
+        },
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "open-session",
+        "deep"
+      ],
+      "stdout": "",
+      "stderr": "Error: Session deep not found\n",
+      "exit": 1,
+      "state": {
+        "config": {
+          "search_dirs": [
+            {
+              "path": "$ROOT/search",
+              "depth": 1
+            }
+          ]
+        },
+        "sessions": [
+          {
+            "name": "repo",
+            "path": "$ROOT/search/repo",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/repo"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "repo"
+        },
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "open-session",
+        ".hidden"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_dirs": [
+            {
+              "path": "$ROOT/search",
+              "depth": 1
+            }
+          ]
+        },
+        "sessions": [
+          {
+            "name": "_hidden",
+            "path": "$ROOT/search/.hidden",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/.hidden"
+              ]
+            ]
+          },
+          {
+            "name": "repo",
+            "path": "$ROOT/search/repo",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/repo"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "_hidden"
+        },
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "config",
+        "--paths",
+        "$ROOT/search",
+        "--max-depths",
+        "2"
+      ],
+      "stdout": "Configuration has been stored\n",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_dirs": [
+            {
+              "path": "$ROOT/search",
+              "depth": 2
+            }
+          ]
+        },
+        "sessions": [
+          {
+            "name": "_hidden",
+            "path": "$ROOT/search/.hidden",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/.hidden"
+              ]
+            ]
+          },
+          {
+            "name": "repo",
+            "path": "$ROOT/search/repo",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/repo"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "_hidden"
+        },
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "--",
+        "tms",
+        "open-session",
+        ""
+      ],
+      "stdout": ".hidden\ndeep\nrepo\n--help",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_dirs": [
+            {
+              "path": "$ROOT/search",
+              "depth": 2
+            }
+          ]
+        },
+        "sessions": [
+          {
+            "name": "_hidden",
+            "path": "$ROOT/search/.hidden",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/.hidden"
+              ]
+            ]
+          },
+          {
+            "name": "repo",
+            "path": "$ROOT/search/repo",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/repo"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "_hidden"
+        },
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "open-session",
+        "nested"
+      ],
+      "stdout": "",
+      "stderr": "Error: Session nested not found\n",
+      "exit": 1,
+      "state": {
+        "config": {
+          "search_dirs": [
+            {
+              "path": "$ROOT/search",
+              "depth": 2
+            }
+          ]
+        },
+        "sessions": [
+          {
+            "name": "_hidden",
+            "path": "$ROOT/search/.hidden",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/.hidden"
+              ]
+            ]
+          },
+          {
+            "name": "repo",
+            "path": "$ROOT/search/repo",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/repo"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "_hidden"
+        },
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    }
+  ],
+  "discovery-depth-zero": [
+    {
+      "argv": [
+        "--",
+        "tms",
+        "open-session",
+        ""
+      ],
+      "stdout": "repo\n--help",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_dirs": [
+            {
+              "path": "$ROOT/search/repo",
+              "depth": 0
+            }
+          ]
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "open-session",
+        "repo"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_dirs": [
+            {
+              "path": "$ROOT/search/repo",
+              "depth": 0
+            }
+          ]
+        },
+        "sessions": [
+          {
+            "name": "repo",
+            "path": "$ROOT/search/repo",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/repo"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "repo"
+        },
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    }
+  ],
+  "discovery-exclusions": [
+    {
+      "argv": [
+        "--",
+        "tms",
+        "open-session",
+        ""
+      ],
+      "stdout": "UPPER-SKIP\nkeep\n--help",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/search"
+          ],
+          "excluded_dirs": [
+            "skip"
+          ]
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    }
+  ],
+  "discovery-symlinks": [
+    {
+      "argv": [
+        "--",
+        "tms",
+        "open-session",
+        ""
+      ],
+      "stdout": "cycle/alias\nsearch/alias\n--help",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_dirs": [
+            {
+              "path": "$ROOT/search",
+              "depth": 2
+            }
+          ]
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "open-session",
+        "alias"
+      ],
+      "stdout": "",
+      "stderr": "Error: Session alias not found\n",
+      "exit": 1,
+      "state": {
+        "config": {
+          "search_dirs": [
+            {
+              "path": "$ROOT/search",
+              "depth": 2
+            }
+          ]
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    }
+  ],
+  "discovery-duplicate-names": [
+    {
+      "argv": [
+        "--",
+        "tms",
+        "open-session",
+        ""
+      ],
+      "stdout": "c/b/same\nsearch/a/same\nsearch/b/same\n--help",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/search"
+          ]
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "open-session",
+        "same"
+      ],
+      "stdout": "",
+      "stderr": "Error: Session same not found\n",
+      "exit": 1,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/search"
+          ]
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "open-session",
+        "search/a/same"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/search"
+          ]
+        },
+        "sessions": [
+          {
+            "name": "search/a/same",
+            "path": "$ROOT/search/a/same",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/a/same"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "search/a/same"
+        },
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    }
+  ],
+  "discovery-full-path": [
+    {
+      "argv": [
+        "--",
+        "tms",
+        "open-session",
+        ""
+      ],
+      "stdout": "$ROOT/search/a.b-c\n--help",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "display_full_path": true,
+          "search_paths": [
+            "$ROOT/search"
+          ]
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "open-session",
+        "a.b-c"
+      ],
+      "stdout": "",
+      "stderr": "Error: Session a.b-c not found\n",
+      "exit": 1,
+      "state": {
+        "config": {
+          "display_full_path": true,
+          "search_paths": [
+            "$ROOT/search"
+          ]
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "open-session",
+        "$ROOT/search/a.b-c"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "display_full_path": true,
+          "search_paths": [
+            "$ROOT/search"
+          ]
+        },
+        "sessions": [
+          {
+            "name": "a_b-c",
+            "path": "$ROOT/search/a.b-c",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/a.b-c"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "a_b-c"
+        },
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    }
+  ],
+  "discovery-path-expansion": [
+    {
+      "argv": [
+        "--",
+        "tms",
+        "open-session",
+        ""
+      ],
+      "stdout": "home-repo\nnew-repo\n--help",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_paths": [
+            "~/projects",
+            "$TMS_COMPAT_ROOT/missing"
+          ],
+          "search_dirs": [
+            {
+              "path": "$TMS_COMPAT_ROOT/search",
+              "depth": 1
+            }
+          ]
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    }
+  ],
+  "git-linked-worktree": [
+    {
+      "argv": [
+        "--",
+        "tms",
+        "open-session",
+        ""
+      ],
+      "stdout": "linked\nrepo\n--help",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/search"
+          ]
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "open-session",
+        "repo"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/search"
+          ]
+        },
+        "sessions": [
+          {
+            "name": "repo",
+            "path": "$ROOT/search/repo",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/repo"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "repo"
+        },
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "open-session",
+        "linked"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/search"
+          ]
+        },
+        "sessions": [
+          {
+            "name": "linked",
+            "path": "$ROOT/search/linked",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/linked"
+              ]
+            ]
+          },
+          {
+            "name": "repo",
+            "path": "$ROOT/search/repo",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/repo"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "linked"
+        },
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "open-session",
+        "linked"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/search"
+          ]
+        },
+        "sessions": [
+          {
+            "name": "linked",
+            "path": "$ROOT/search/linked",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/linked"
+              ]
+            ]
+          },
+          {
+            "name": "repo",
+            "path": "$ROOT/search/repo",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/repo"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "linked"
+        },
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "config",
+        "--enable-list-worktrees",
+        "true"
+      ],
+      "stdout": "Configuration has been stored\n",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/search"
+          ],
+          "list_worktrees": true
+        },
+        "sessions": [
+          {
+            "name": "linked",
+            "path": "$ROOT/search/linked",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/linked"
+              ]
+            ]
+          },
+          {
+            "name": "repo",
+            "path": "$ROOT/search/repo",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/repo"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "linked"
+        },
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "--",
+        "tms",
+        "open-session",
+        ""
+      ],
+      "stdout": "linked\nrepo\n--help",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/search"
+          ],
+          "list_worktrees": true
+        },
+        "sessions": [
+          {
+            "name": "linked",
+            "path": "$ROOT/search/linked",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/linked"
+              ]
+            ]
+          },
+          {
+            "name": "repo",
+            "path": "$ROOT/search/repo",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/repo"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "linked"
+        },
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    }
+  ],
+  "git-bare-worktrees": [
+    {
+      "argv": [
+        "--",
+        "tms",
+        "open-session",
+        ""
+      ],
+      "stdout": "project\n--help",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/search"
+          ]
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "open-session",
+        "project"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/search"
+          ]
+        },
+        "sessions": [
+          {
+            "name": "project",
+            "path": "$ROOT/search/project",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/project"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "project"
+        },
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "config",
+        "--enable-list-worktrees",
+        "true"
+      ],
+      "stdout": "Configuration has been stored\n",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/search"
+          ],
+          "list_worktrees": true
+        },
+        "sessions": [
+          {
+            "name": "project",
+            "path": "$ROOT/search/project",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/project"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "project"
+        },
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "--",
+        "tms",
+        "open-session",
+        ""
+      ],
+      "stdout": "project\nproject#main\nproject#topic\n--help",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/search"
+          ],
+          "list_worktrees": true
+        },
+        "sessions": [
+          {
+            "name": "project",
+            "path": "$ROOT/search/project",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/project"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "project"
+        },
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "open-session",
+        "project#main"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/search"
+          ],
+          "list_worktrees": true
+        },
+        "sessions": [
+          {
+            "name": "project",
+            "path": "$ROOT/search/project",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/project"
+              ]
+            ]
+          },
+          {
+            "name": "project#main",
+            "path": "$ROOT/search/project/main",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/project/main"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "project#main"
+        },
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    }
+  ],
+  "gitlink-dot-bare": [
+    {
+      "argv": [
+        "--",
+        "tms",
+        "open-session",
+        ""
+      ],
+      "stdout": "project\n--help",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/search"
+          ]
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "open-session",
+        "project"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/search"
+          ]
+        },
+        "sessions": [
+          {
+            "name": "project",
+            "path": "$ROOT/search/project/.bare",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/project/.bare"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "project"
+        },
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    }
+  ],
+  "git-submodules": [
+    {
+      "argv": [
+        "--",
+        "tms",
+        "open-session",
+        ""
+      ],
+      "stdout": "parent\n--help",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/search"
+          ]
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "config",
+        "--search-submodules",
+        "true"
+      ],
+      "stdout": "Configuration has been stored\n",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_submodules": true,
+          "search_paths": [
+            "$ROOT/search"
+          ]
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "--",
+        "tms",
+        "open-session",
+        ""
+      ],
+      "stdout": "parent\nparent>child\n--help",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_submodules": true,
+          "search_paths": [
+            "$ROOT/search"
+          ]
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "open-session",
+        "parent>child"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_submodules": true,
+          "search_paths": [
+            "$ROOT/search"
+          ]
+        },
+        "sessions": [
+          {
+            "name": "parent>child",
+            "path": "$ROOT/search/parent/modules/child",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/parent/modules/child"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "parent>child"
+        },
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    }
+  ],
+  "bookmarks": [
+    {
+      "argv": [
+        "bookmark",
+        "$ROOT/notes"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/search"
+          ],
+          "bookmarks": [
+            "$ROOT/notes"
+          ]
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "bookmark",
+        "$ROOT/notes"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/search"
+          ],
+          "bookmarks": [
+            "$ROOT/notes"
+          ]
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "bookmark"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/search"
+          ],
+          "bookmarks": [
+            "$ROOT/notes",
+            "$ROOT/other"
+          ]
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "bookmark",
+        "$ROOT/missing"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/search"
+          ],
+          "bookmarks": [
+            "$ROOT/notes",
+            "$ROOT/other",
+            "$ROOT/missing"
+          ]
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "--",
+        "tms",
+        "open-session",
+        ""
+      ],
+      "stdout": "notes\nother\n--help",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/search"
+          ],
+          "bookmarks": [
+            "$ROOT/notes",
+            "$ROOT/other",
+            "$ROOT/missing"
+          ]
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "open-session",
+        "notes"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/search"
+          ],
+          "bookmarks": [
+            "$ROOT/notes",
+            "$ROOT/other",
+            "$ROOT/missing"
+          ]
+        },
+        "sessions": [
+          {
+            "name": "notes",
+            "path": "$ROOT/notes",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/notes"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "notes"
+        },
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "bookmark",
+        "--delete",
+        "$ROOT/notes"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/search"
+          ],
+          "bookmarks": [
+            "$ROOT/other",
+            "$ROOT/missing"
+          ]
+        },
+        "sessions": [
+          {
+            "name": "notes",
+            "path": "$ROOT/notes",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/notes"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "notes"
+        },
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "bookmark",
+        "--delete",
+        "$ROOT/not-bookmarked"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/search"
+          ],
+          "bookmarks": [
+            "$ROOT/other",
+            "$ROOT/missing"
+          ]
+        },
+        "sessions": [
+          {
+            "name": "notes",
+            "path": "$ROOT/notes",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/notes"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "notes"
+        },
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    }
+  ],
+  "marks": [
+    {
+      "argv": [
+        "marks"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "marks",
+        "open",
+        "2"
+      ],
+      "stdout": "",
+      "stderr": "Error: Config Error\n╰╴Session with index 2 not found in marks\n",
+      "exit": 1,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "marks",
+        "set",
+        "2",
+        "--path",
+        "$ROOT/second"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "marks": {
+            "2": "$ROOT/second"
+          }
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "marks",
+        "set",
+        "--path",
+        "$ROOT/a.b-c"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "marks": {
+            "0": "$ROOT/a.b-c",
+            "2": "$ROOT/second"
+          }
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "marks",
+        "set",
+        "1",
+        "--path",
+        "$ROOT/missing"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "marks": {
+            "0": "$ROOT/a.b-c",
+            "2": "$ROOT/second",
+            "1": "$ROOT/missing"
+          }
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "marks",
+        "list"
+      ],
+      "stdout": "0: a.b-c ($ROOT/a.b-c)\n2: second ($ROOT/second)\n",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "marks": {
+            "0": "$ROOT/a.b-c",
+            "2": "$ROOT/second",
+            "1": "$ROOT/missing"
+          }
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "marks",
+        "set",
+        "--path",
+        "$ROOT/second"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "marks": {
+            "0": "$ROOT/a.b-c",
+            "2": "$ROOT/second",
+            "1": "$ROOT/second"
+          }
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "marks",
+        "list"
+      ],
+      "stdout": "0: a.b-c ($ROOT/a.b-c)\n1: second ($ROOT/second)\n2: second ($ROOT/second)\n",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "marks": {
+            "0": "$ROOT/a.b-c",
+            "2": "$ROOT/second",
+            "1": "$ROOT/second"
+          }
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "marks",
+        "0"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "marks": {
+            "0": "$ROOT/a.b-c",
+            "2": "$ROOT/second",
+            "1": "$ROOT/second"
+          }
+        },
+        "sessions": [
+          {
+            "name": "a_b-c",
+            "path": "$ROOT/a.b-c",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/a.b-c"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "a_b-c"
+        },
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "marks",
+        "delete",
+        "0"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "marks": {
+            "2": "$ROOT/second",
+            "1": "$ROOT/second"
+          }
+        },
+        "sessions": [
+          {
+            "name": "a_b-c",
+            "path": "$ROOT/a.b-c",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/a.b-c"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "a_b-c"
+        },
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "marks",
+        "delete",
+        "99"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "marks": {
+            "1": "$ROOT/second",
+            "2": "$ROOT/second"
+          }
+        },
+        "sessions": [
+          {
+            "name": "a_b-c",
+            "path": "$ROOT/a.b-c",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/a.b-c"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "a_b-c"
+        },
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "marks",
+        "delete",
+        "--all"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {},
+        "sessions": [
+          {
+            "name": "a_b-c",
+            "path": "$ROOT/a.b-c",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/a.b-c"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "a_b-c"
+        },
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "marks",
+        "list"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {},
+        "sessions": [
+          {
+            "name": "a_b-c",
+            "path": "$ROOT/a.b-c",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/a.b-c"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "a_b-c"
+        },
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    }
+  ],
+  "session-create-script": [
+    {
+      "argv": [
+        "open-session",
+        "a.b-c"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/search"
+          ]
+        },
+        "sessions": [
+          {
+            "name": "a_b-c",
+            "path": "$ROOT/search/a.b-c",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/a.b-c"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "a_b-c"
+        },
+        "keys": [
+          [
+            "-t",
+            "a_b-c:{start}.{top}",
+            "$ROOT/search/a.b-c/.tms-create",
+            "Enter"
+          ]
+        ],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "open-session",
+        "a.b-c"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/search"
+          ]
+        },
+        "sessions": [
+          {
+            "name": "a_b-c",
+            "path": "$ROOT/search/a.b-c",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/a.b-c"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "a_b-c"
+        },
+        "keys": [
+          [
+            "-t",
+            "a_b-c:{start}.{top}",
+            "$ROOT/search/a.b-c/.tms-create",
+            "Enter"
+          ]
+        ],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "sessions"
+      ],
+      "stdout": "a_b-c*  \n",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/search"
+          ]
+        },
+        "sessions": [
+          {
+            "name": "a_b-c",
+            "path": "$ROOT/search/a.b-c",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/a.b-c"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "a_b-c"
+        },
+        "keys": [
+          [
+            "-t",
+            "a_b-c:{start}.{top}",
+            "$ROOT/search/a.b-c/.tms-create",
+            "Enter"
+          ]
+        ],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    }
+  ],
+  "session-create-script-override": [
+    {
+      "argv": [
+        "open-session",
+        "repo"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/search"
+          ],
+          "session_configs": {
+            "repo": {
+              "create_script": "$ROOT/custom"
+            }
+          }
+        },
+        "sessions": [
+          {
+            "name": "repo",
+            "path": "$ROOT/search/repo",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/repo"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "repo"
+        },
+        "keys": [
+          [
+            "-t",
+            "repo:{start}.{top}",
+            "$ROOT/custom",
+            "Enter"
+          ]
+        ],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    }
+  ],
+  "outside-tmux": [
+    {
+      "argv": [
+        "open-session",
+        "repo"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/search"
+          ]
+        },
+        "sessions": [
+          {
+            "name": "repo",
+            "path": "$ROOT/search/repo",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/repo"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "attach-session",
+          "target": "repo"
+        },
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "open-session",
+        "repo"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/search"
+          ]
+        },
+        "sessions": [
+          {
+            "name": "repo",
+            "path": "$ROOT/search/repo",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/repo"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "repo"
+        },
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    }
+  ],
+  "start-empty": [
+    {
+      "argv": [
+        "start"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": null,
+        "sessions": [],
+        "client": {
+          "command": "tmux",
+          "target": null
+        },
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    }
+  ],
+  "start-configured": [
+    {
+      "argv": [
+        "start"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "sessions": [
+            {
+              "name": "startup",
+              "path": "$ROOT/search",
+              "windows": [
+                {
+                  "name": "work",
+                  "path": "$ROOT/search",
+                  "command": "echo startup-command"
+                }
+              ]
+            }
+          ]
+        },
+        "sessions": [
+          {
+            "name": "startup",
+            "path": "$ROOT/search",
+            "window_count": 1,
+            "windows": [
+              [
+                "work",
+                "$ROOT/search"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "attach-session",
+          "target": null
+        },
+        "keys": [
+          [
+            "echo startup-command",
+            "Enter"
+          ]
+        ],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    }
+  ],
+  "kill-default": [
+    {
+      "argv": [
+        "sessions"
+      ],
+      "stdout": "current* fallback  \n",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "default_session": "fallback"
+        },
+        "sessions": [
+          {
+            "name": "current",
+            "path": "$ROOT/search",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search"
+              ]
+            ]
+          },
+          {
+            "name": "fallback",
+            "path": "$ROOT/search",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search"
+              ]
+            ]
+          }
+        ],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "kill"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "default_session": "fallback"
+        },
+        "sessions": [
+          {
+            "name": "fallback",
+            "path": "$ROOT/search",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "fallback"
+        },
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    }
+  ],
+  "refresh-worktree": [
+    {
+      "argv": [
+        "refresh"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/search"
+          ]
+        },
+        "sessions": [
+          {
+            "name": "repo",
+            "path": "$ROOT/search/repo",
+            "window_count": 2,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/repo"
+              ],
+              [
+                "topic",
+                "$ROOT/topic"
+              ]
+            ]
+          }
+        ],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "refresh",
+        "repo"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/search"
+          ]
+        },
+        "sessions": [
+          {
+            "name": "repo",
+            "path": "$ROOT/search/repo",
+            "window_count": 2,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/repo"
+              ],
+              [
+                "topic",
+                "$ROOT/topic"
+              ]
+            ]
+          }
+        ],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    }
+  ],
+  "rename": [
+    {
+      "argv": [
+        "rename",
+        "after-project"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": null,
+        "sessions": [
+          {
+            "name": "after-project",
+            "path": "$ROOT/before-project",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/after-project"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "attach-session",
+          "target": null
+        },
+        "keys": [
+          [
+            "-t",
+            "1.0",
+            "cd $ROOT/after-project",
+            "Enter"
+          ]
+        ],
+        "tmux_socket_contract": true,
+        "paths": {
+          "before-project": false,
+          "after-project": true
+        }
+      }
+    }
+  ],
+  "init-repo": [
+    {
+      "argv": [
+        "init-repo",
+        "fresh"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_dirs": [
+            {
+              "path": "$ROOT/search",
+              "depth": 1
+            }
+          ]
+        },
+        "sessions": [
+          {
+            "name": "fresh",
+            "path": "$ROOT/search/fresh",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/fresh"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "fresh"
+        },
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {
+          "search/fresh/.git": true
+        }
+      }
+    }
+  ],
+  "clone-local": [
+    {
+      "argv": [
+        "clone-repo",
+        "$ROOT/source",
+        "--name",
+        "copied"
+      ],
+      "stdout": "",
+      "stderr": "Cloning into '$ROOT/search/copied'...\ndone.\n",
+      "exit": 0,
+      "state": {
+        "config": {
+          "clone_repo_switch": "Never",
+          "search_dirs": [
+            {
+              "path": "$ROOT/search",
+              "depth": 1
+            }
+          ]
+        },
+        "sessions": [
+          {
+            "name": "copied",
+            "path": "$ROOT/search/copied",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/copied"
+              ]
+            ]
+          }
+        ],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {
+          "search/copied/.git": true
+        }
+      }
+    }
+  ],
+  "clone-failure-ignored": [
+    {
+      "argv": [
+        "clone-repo",
+        "$ROOT/does-not-exist",
+        "--name",
+        "failed"
+      ],
+      "stdout": "",
+      "stderr": "fatal: repository '$ROOT/does-not-exist' does not exist\n",
+      "exit": 0,
+      "state": {
+        "config": {
+          "clone_repo_switch": "Never",
+          "search_dirs": [
+            {
+              "path": "$ROOT/search",
+              "depth": 1
+            }
+          ]
+        },
+        "sessions": [
+          {
+            "name": "failed",
+            "path": "$ROOT/search/failed",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/failed"
+              ]
+            ]
+          }
+        ],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {
+          "search/failed": true,
+          "search/failed/.git": false
+        }
+      }
+    }
+  ],
+  "jj-workspaces": [
+    {
+      "argv": [
+        "--",
+        "tms",
+        "open-session",
+        ""
+      ],
+      "stdout": "linked\nproject\n--help",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "vcs_providers": [
+            "jj",
+            "git"
+          ],
+          "search_paths": [
+            "$ROOT/search"
+          ]
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "open-session",
+        "linked"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "vcs_providers": [
+            "jj",
+            "git"
+          ],
+          "search_paths": [
+            "$ROOT/search"
+          ]
+        },
+        "sessions": [
+          {
+            "name": "linked",
+            "path": "$ROOT/search/linked",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/linked"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "linked"
+        },
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "open-session",
+        "project"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "vcs_providers": [
+            "jj",
+            "git"
+          ],
+          "search_paths": [
+            "$ROOT/search"
+          ]
+        },
+        "sessions": [
+          {
+            "name": "linked",
+            "path": "$ROOT/search/linked",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/linked"
+              ]
+            ]
+          },
+          {
+            "name": "project",
+            "path": "$ROOT/search/project",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/project"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "project"
+        },
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "config",
+        "--enable-list-worktrees",
+        "true"
+      ],
+      "stdout": "Configuration has been stored\n",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/search"
+          ],
+          "vcs_providers": [
+            "jujutsu",
+            "git"
+          ],
+          "list_worktrees": true
+        },
+        "sessions": [
+          {
+            "name": "linked",
+            "path": "$ROOT/search/linked",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/linked"
+              ]
+            ]
+          },
+          {
+            "name": "project",
+            "path": "$ROOT/search/project",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/project"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "project"
+        },
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "--",
+        "tms",
+        "open-session",
+        ""
+      ],
+      "stdout": "--help",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/search"
+          ],
+          "vcs_providers": [
+            "jujutsu",
+            "git"
+          ],
+          "list_worktrees": true
+        },
+        "sessions": [
+          {
+            "name": "linked",
+            "path": "$ROOT/search/linked",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/linked"
+              ]
+            ]
+          },
+          {
+            "name": "project",
+            "path": "$ROOT/search/project",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/project"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "project"
+        },
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    },
+    {
+      "argv": [
+        "open-session",
+        "project"
+      ],
+      "stdout": "",
+      "stderr": "Error: IO Error\n╰─▶ Not a directory (os error 20)\n",
+      "exit": 1,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/search"
+          ],
+          "vcs_providers": [
+            "jujutsu",
+            "git"
+          ],
+          "list_worktrees": true
+        },
+        "sessions": [
+          {
+            "name": "linked",
+            "path": "$ROOT/search/linked",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/linked"
+              ]
+            ]
+          },
+          {
+            "name": "project",
+            "path": "$ROOT/search/project",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/search/project"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "switch-client",
+          "target": "project"
+        },
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    }
+  ],
+  "jj-default-provider": [
+    {
+      "argv": [
+        "--",
+        "tms",
+        "open-session",
+        ""
+      ],
+      "stdout": "git\n--help",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "search_paths": [
+            "$ROOT/search"
+          ]
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    }
+  ],
+  "config-type-coercion": [
+    {
+      "argv": [
+        "config",
+        "list"
+      ],
+      "stdout": {
+        "display_full_path": true,
+        "search_submodules": false,
+        "recursive_submodules": false,
+        "switch_filter_unknown": false,
+        "session_sort_order": "Alphabetical",
+        "excluded_dirs": [],
+        "search_dirs": [],
+        "sessions": [],
+        "bookmarks": [],
+        "clone_repo_switch": "Always",
+        "vcs_providers": [
+          "git"
+        ],
+        "list_worktrees": false,
+        "picker_colors": {
+          "highlight_color": "LightBlue",
+          "highlight_text_color": "Black",
+          "border_color": "DarkGray",
+          "info_color": "LightYellow",
+          "prompt_color": "LightGreen"
+        },
+        "shortcuts": {
+          "backspace": "backspace",
+          "ctrl-a": "move_to_line_start",
+          "ctrl-c": "cancel",
+          "ctrl-d": "delete",
+          "ctrl-e": "move_to_line_end",
+          "ctrl-j": "move_down",
+          "ctrl-k": "move_up",
+          "ctrl-n": "move_down",
+          "ctrl-p": "move_up",
+          "ctrl-u": "delete_to_line_start",
+          "ctrl-w": "delete_word",
+          "delete": "delete",
+          "down": "move_down",
+          "enter": "confirm",
+          "esc": "cancel",
+          "left": "cursor_left",
+          "right": "cursor_right",
+          "up": "move_up"
+        },
+        "session_configs": {},
+        "marks": {}
+      },
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": {
+          "display_full_path": "yes"
+        },
+        "sessions": [],
+        "client": null,
+        "keys": [],
+        "tmux_socket_contract": true,
+        "paths": {}
+      }
+    }
+  ],
+  "rename-move-failure-ignored": [
+    {
+      "argv": [
+        "rename",
+        "after-project"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": null,
+        "sessions": [
+          {
+            "name": "after-project",
+            "path": "$ROOT/before-project",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/before-project"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "attach-session",
+          "target": null
+        },
+        "keys": [
+          [
+            "-t",
+            "1.0",
+            "cd $ROOT/after-project",
+            "Enter"
+          ]
+        ],
+        "tmux_socket_contract": true,
+        "paths": {
+          "before-project": true,
+          "after-project": true
+        }
+      }
+    }
+  ],
+  "rename-global-replacement": [
+    {
+      "argv": [
+        "rename",
+        "after-project"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exit": 0,
+      "state": {
+        "config": null,
+        "sessions": [
+          {
+            "name": "after-project",
+            "path": "$ROOT/prefix-before-project/before-project",
+            "window_count": 1,
+            "windows": [
+              [
+                "sleep",
+                "$ROOT/prefix-after-project/after-project"
+              ]
+            ]
+          }
+        ],
+        "client": {
+          "command": "attach-session",
+          "target": null
+        },
+        "keys": [
+          [
+            "-t",
+            "1.0",
+            "cd $ROOT/prefix-after-project/after-project",
+            "Enter"
+          ]
+        ],
+        "tmux_socket_contract": true,
+        "paths": {
+          "prefix-before-project/before-project": false,
+          "prefix-after-project/after-project": true
+        }
+      }
+    }
+  ]
+}
