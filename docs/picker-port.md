@@ -46,6 +46,30 @@ The host was macOS arm64. Zig 0.17.1 built the temporary native driver through m
 
 `mise exec -- python3 src/picker/regression-pty.py` builds the checked-in focused driver with the real matcher. Every module uses ReleaseFast. The runner uses controlling PTYs and checks saved attributes before draining output after exit. The saturated-output case never drains the master after the wide frame starts and requires signal exit within two seconds. `--binary /path/to/driver` tests an existing compatible driver.
 
+## Bounded contextual clipping
+
+Backward context convergence did not bound work. Repeating the Tifinagh letter
+and joiner 512 times required 524,288 width transitions; 1,024 pairs required
+2,097,152. The old clipping loop therefore grew quadratically.
+
+Two independent designs considered conditional prefix costs. One used a closed
+240-context superset; the other identified 76 reachable contexts from the pinned
+tables and transition rules. Clipping now uses the smaller set, checked against
+table endpoints and contextual transitions.
+
+Each vector entry is the signed cost of scanning the current prefix backward from
+that right-hand context. Appending a scalar computes its transition once per
+context, then adds the previous cost at the resulting context. Two fixed vectors
+bound work to 76 transitions per scalar. Unicode table lookup is shared across
+those transitions. Costs remain signed until the normal-context result is read.
+Every grapheme boundary is considered because later characters can reduce width.
+
+The nine focused PTY checks include a 65,534-scalar Tifinagh query and suspension
+while initial terminal output is blocked. Initial entry and re-entry use the same
+suspension loop. Three consecutive stop/resume cycles must restore attributes,
+resume input, and permit cancellation. The coordinator reproduced the quadratic
+unit failure and verified all nine PTY checks after the changes.
+
 ## Compatibility and limits
 
 The approved improvements use display-cell cursor placement, safe tiny-size arithmetic, signal cleanup, and immediate rendering after matching completes.

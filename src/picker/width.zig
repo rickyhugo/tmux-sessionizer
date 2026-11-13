@@ -160,38 +160,103 @@ pub fn prefix(text: []const u8, scalar_cursor: usize) usize {
 
 pub const Clip = struct { bytes: usize = 0, cells: usize = 0 };
 
+const contexts = blk: {
+    const plain = [_]u16{
+        0,    2,    3,      4,      5,      9,      10,     11,
+        0x10, 0x11, 0x12,   0x13,   0x19,   0x1a,   0x1b,   0x1c,
+        0x1d, 0x1e, 0x1006, 0x1007, 0x4000, 0x8000, 0x9006, 0x9007,
+    };
+    const families = [_]u16{
+        0x30ff, 0x3800, 0x3801, 0x3803, 0x3806,
+        0x3c00, 0x3c01, 0x3c02, 0x3c03, 0x3c04,
+        0x3c05, 0x3c06, 0x3c07,
+    };
+    var values: [plain.len + families.len * 4]u16 = undefined;
+    @memcpy(values[0..plain.len], &plain);
+    for (0..4) |mask| {
+        for (families, 0..) |base, i|
+            values[plain.len + mask * families.len + i] = base | (@as(u16, @intCast(mask)) << 14);
+    }
+    break :blk values;
+};
+
+fn contextIndex(value: u16) usize {
+    inline for (contexts, 0..) |context, i| {
+        if (value == context) return i;
+    }
+    unreachable;
+}
+
 pub fn clip(text: []const u8, max: usize) Clip {
+    return clipCount(text, max, null);
+}
+
+fn clipCount(text: []const u8, max: usize, work: ?*usize) Clip {
     if (max == 0) return .{};
     var result: Clip = .{};
-    var measured: Clip = .{};
-    while (measured.bytes < text.len) {
-        const end = measured.bytes + clusterLen(text[measured.bytes..]);
-        if (end == measured.bytes) break;
-        var pos = end;
-        var sum: isize = @intCast(measured.cells);
-        var previous: u16 = W.normal;
-        var next: u16 = W.normal;
-        while (pos > 0) {
-            const old_end = pos;
-            pos -= 1;
-            while (pos > 0 and text[pos] & 0xc0 == 0x80) pos -= 1;
-            const scalar = std.unicode.utf8Decode(text[pos..old_end]) catch unreachable;
+    var costs: [contexts.len]isize = @splat(0);
+    var pos: usize = 0;
+    while (pos < text.len) {
+        const end = pos + clusterLen(text[pos..]);
+        if (end == pos) break;
+        while (pos < end) {
+            const n = std.unicode.utf8ByteSequenceLength(text[pos]) catch unreachable;
+            const scalar = std.unicode.utf8Decode(text[pos..][0..n]) catch unreachable;
+            pos += n;
             if (scalar < 32 or (scalar >= 127 and scalar <= 159)) continue;
-            const value = step(scalar, next);
-            sum += value.add;
-            next = value.info;
-            if (pos < measured.bytes) {
-                const old = step(scalar, previous);
-                sum -= old.add;
-                previous = old.info;
+            const record = lookup(scalar);
+            var next: [contexts.len]isize = undefined;
+            for (contexts, 0..) |context, i| {
+                if (work) |count| count.* += 1;
+                const value = stepWithRecord(scalar, context, record);
+                // A reverse scan of P+c starts with c, then scans P in c's output context.
+                next[i] = value.add + costs[contextIndex(value.info)];
             }
-            // Earlier scalars contribute equally once the old and new contexts agree.
-            if (pos <= measured.bytes and previous == next) break;
+            costs = next;
         }
-        measured = .{ .bytes = end, .cells = @intCast(@max(0, sum)) };
-        if (measured.cells <= max) result = measured;
+        const cells: usize = @intCast(@max(0, costs[contextIndex(W.normal)]));
+        if (cells <= max) result = .{ .bytes = end, .cells = cells };
     }
     return result;
+}
+
+test "clipping work is bounded for nonconverging Tifinagh contexts" {
+    var bounded = true;
+    for ([_]usize{ 512, 1024 }) |pairs| {
+        const pair = "\u{2d31}\u{2d7f}";
+        const text = try std.testing.allocator.alloc(u8, pair.len * pairs);
+        defer std.testing.allocator.free(text);
+        for (0..pairs) |i| @memcpy(text[i * pair.len ..][0..pair.len], pair);
+        var work: usize = 0;
+        const actual = clipCount(text, 1, &work);
+        try std.testing.expectEqual(Clip{}, actual);
+        bounded = bounded and work <= pairs * 2 * 128;
+    }
+    try std.testing.expect(bounded);
+}
+
+test "prefix contexts are closed under table records and contextual transitions" {
+    for (0..data.len / 13) |i| {
+        const bytes = data[i * 13 ..][0..13];
+        for ([_]u32{
+            std.mem.readInt(u32, bytes[0..4], .little),
+            std.mem.readInt(u32, bytes[4..8], .little),
+        }) |scalar| try checkContexts(@intCast(scalar));
+    }
+    for ([_]u21{
+        '#',     '*',     '0',     '9',     0xa0,    0x5d0,   0x644,   0x6b5,   0x6b8,   0x76a,
+        0x8a6,   0x8c7,   0x17d2,  0x1a15,  0x1a17,  0x200d,  0x20e3,  0x2d31,  0x2d65,  0x2d6f,
+        0x2d7f,  0xa4f8,  0xa4fb,  0xfe0e,  0xfe0f,  0x10c32, 0x1f1e6, 0x1f1ff, 0x1f3f4, 0x1f3fb,
+        0x1f3ff, 0xe0030, 0xe0039, 0xe0061, 0xe007a, 0xe007f,
+    }) |scalar| try checkContexts(scalar);
+}
+
+fn checkContexts(scalar: u21) !void {
+    if (scalar < 32 or (scalar >= 127 and scalar <= 159)) return;
+    for (contexts) |context| {
+        const value = step(scalar, context);
+        try std.testing.expect(std.mem.indexOfScalar(u16, &contexts, value.info) != null);
+    }
 }
 
 pub fn width(text: []const u8) usize {
@@ -215,8 +280,11 @@ pub fn width(text: []const u8) usize {
 }
 
 fn step(c: u21, following: u16) Step {
+    return stepWithRecord(c, following, lookup(c));
+}
+
+fn stepWithRecord(c: u21, following: u16, record: Record) Step {
     var next = following;
-    const record = lookup(c);
     if (next & 0x8000 != 0) {
         if (record.properties & 1 != 0) {
             return .{ .add = if (next & 0xb000 == 0x9000) 0 else 2, .info = W.emoji };

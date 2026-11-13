@@ -19,9 +19,17 @@ ANSI = re.compile(rb"\x1b\[[0-?]*[ -/]*[@-~]")
 SUPERVISOR = """
 import os, subprocess, sys
 fd = int(sys.argv[1])
-child = subprocess.Popen(sys.argv[2:])
+child = subprocess.Popen(sys.argv[3:], stderr=int(sys.argv[2]))
 os.write(fd, f"{child.pid}\\n".encode())
-os.write(fd, f"{child.wait()}\\n".encode())
+while True:
+    _, value = os.waitpid(child.pid, os.WUNTRACED | os.WCONTINUED)
+    if os.WIFSTOPPED(value):
+        os.write(fd, b"STOP\\n")
+    elif os.WIFCONTINUED(value):
+        os.write(fd, b"CONT\\n")
+    else:
+        os.write(fd, f"{os.waitstatus_to_exitcode(value)}\\n".encode())
+        break
 os.read(0, 1)
 """
 
@@ -33,39 +41,75 @@ def attributes(fd):
 
 
 class Picker:
-    def __init__(self, binary):
+    def __init__(self, binary, saturated_entry=False, long_query=False):
         self.master, self.slave = pty.openpty()
         self.original = attributes(self.slave)
         self.resize(80)
+        if saturated_entry:
+            self.fill_output()
         self.status, status_writer = os.pipe()
+        self.errors = tempfile.TemporaryFile()
 
         def controlling_terminal():
             os.setsid()
             fcntl.ioctl(self.slave, termios.TIOCSCTTY, 0)
 
         self.proc = subprocess.Popen(
-            [sys.executable, "-c", SUPERVISOR, str(status_writer), binary],
+            [
+                sys.executable,
+                "-c",
+                SUPERVISOR,
+                str(status_writer),
+                str(self.errors.fileno()),
+                binary,
+                *(["long-query"] if long_query else []),
+            ],
             stdin=self.slave,
             stdout=self.slave,
             stderr=self.slave,
             preexec_fn=controlling_terminal,
-            pass_fds=(status_writer,),
+            pass_fds=(status_writer, self.errors.fileno()),
             env={**os.environ, "TERM": "xterm-256color", "LC_ALL": "C"},
         )
         os.close(status_writer)
         self.pid = None
         try:
             self.pid = int(self.status_line())
-            self.frame()
-            assert attributes(self.slave) != self.original, (
-                "picker did not enter raw mode"
-            )
+            if long_query:
+                output = b""
+                while b"RENDERING\n" not in output:
+                    assert select.select([self.master], [], [], 2)[0], (
+                        "render did not start"
+                    )
+                    output += os.read(self.master, 65536)
+            elif not saturated_entry:
+                self.frame()
+            self.wait_raw()
         except BaseException:
             self.close()
             raise
 
     def resize(self, width):
         fcntl.ioctl(self.slave, termios.TIOCSWINSZ, struct.pack("HHHH", 4, width, 0, 0))
+
+    def fill_output(self):
+        flags = fcntl.fcntl(self.slave, fcntl.F_GETFL)
+        fcntl.fcntl(self.slave, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+        try:
+            for block in (b"x" * 4096, b"x"):
+                while True:
+                    try:
+                        os.write(self.slave, block)
+                    except BlockingIOError:
+                        break
+        finally:
+            fcntl.fcntl(self.slave, fcntl.F_SETFL, flags)
+
+    def wait_raw(self):
+        deadline = time.monotonic() + 2
+        while attributes(self.slave) == self.original:
+            assert time.monotonic() < deadline, "picker did not enter raw mode"
+            select.select([], [], [], 0.001)
 
     def status_line(self, timeout=2):
         result = b""
@@ -83,9 +127,13 @@ class Picker:
         output = b""
         deadline = time.monotonic() + 3
         while not output.endswith(b"\x1b[?25h"):
-            assert select.select(
+            if not select.select(
                 [self.master], [], [], max(0, deadline - time.monotonic())
-            )[0], "frame deadline"
+            )[0]:
+                self.errors.seek(0)
+                raise AssertionError(
+                    f"frame deadline: {self.errors.read().decode(errors='replace')}"
+                )
             output += os.read(self.master, 65536)
             assert len(output) < 1_000_000, "unbounded frame output"
         return output
@@ -95,7 +143,10 @@ class Picker:
 
     def finish(self, expected=0, drain=True):
         try:
-            status = int(self.status_line())
+            line = self.status_line()
+            while line == "CONT":
+                line = self.status_line()
+            status = int(line)
         except AssertionError as error:
             raise AssertionError(
                 f"{error}, termios_restored={attributes(self.slave) == self.original}"
@@ -123,6 +174,7 @@ class Picker:
         os.close(self.slave)
         self.proc.wait(timeout=3)
         os.close(self.status)
+        self.errors.close()
 
 
 def cancellation(p, value):
@@ -151,6 +203,28 @@ def partial_output(p):
     frame = p.frame()
     assert frame.count("─".encode()) == 65535, "partial writes lost border bytes"
     cancellation(p, b"\x03")
+
+
+def suspend_entry(p):
+    for _ in range(3):
+        os.kill(p.pid, signal.SIGTSTP)
+        status = p.status_line()
+        while status == "CONT":
+            status = p.status_line()
+        assert status == "STOP", f"entry interruption did not suspend, status={status}"
+        assert attributes(p.slave) == p.original, "suspend did not restore termios"
+        os.kill(p.pid, signal.SIGCONT)
+        p.wait_raw()
+    p.frame()
+    p.send(b"z")
+    assert b"> z" in ANSI.sub(b"", p.frame()), "resumed picker did not stay open"
+    cancellation(p, b"\x03")
+
+
+def long_query_signal(p):
+    select.select([], [], [], 0.2)
+    os.kill(p.pid, signal.SIGTERM)
+    p.finish(-signal.SIGTERM)
 
 
 def layout(p, text):
@@ -183,6 +257,7 @@ def layout(p, text):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--binary", help="Use an existing real-matcher driver")
+    parser.add_argument("--case", help="Run one named scenario")
     args = parser.parse_args()
     temporary_root = Path(tempfile.gettempdir()) / "opencode"
     with tempfile.TemporaryDirectory(
@@ -202,19 +277,12 @@ def main():
                     "-O",
                     "ReleaseFast",
                     "--dep",
-                    "picker",
-                    "--dep",
-                    "config",
-                    "-Mroot=src/picker/regression-driver.zig",
-                    "-O",
-                    "ReleaseFast",
-                    "--dep",
                     "config",
                     "--dep",
                     "matcher",
                     "--dep",
                     "tmux",
-                    "-Mpicker=src/picker.zig",
+                    "-Mroot=src/picker-regression.zig",
                     "-O",
                     "ReleaseFast",
                     "-Mconfig=src/config.zig",
@@ -242,10 +310,20 @@ def main():
             ("arabic-layout", lambda p: layout(p, "لاx")),
             ("lisu-layout", lambda p: layout(p, "\ua4f8\ua4fcx")),
             ("hebrew-layout", lambda p: layout(p, "\u05d0\u200d\u05dcx")),
+            ("saturated-entry-suspend", suspend_entry),
+            ("long-query-signal", long_query_signal),
         ]
+        if args.case is not None and args.case not in dict(tests):
+            parser.error(f"unknown scenario: {args.case}")
         failures = []
         for name, test in tests:
-            p = Picker(binary)
+            if args.case is not None and args.case != name:
+                continue
+            p = Picker(
+                binary,
+                saturated_entry=name == "saturated-entry-suspend",
+                long_query=name == "long-query-signal",
+            )
             try:
                 test(p)
                 print(f"PASS {name}", flush=True)

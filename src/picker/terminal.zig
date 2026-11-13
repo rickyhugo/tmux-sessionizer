@@ -63,18 +63,30 @@ pub const Terminal = struct {
     }
 
     fn enter(self: *Terminal) !void {
-        const nonblocking = self.original_flags | @as(c_int, 1 << @bitOffsetOf(c.O, "NONBLOCK"));
-        if (c.fcntl(self.fd, c.F.SETFL, nonblocking) < 0) return error.TerminalDescriptor;
-        errdefer if (!self.raw) {
-            _ = c.fcntl(self.fd, c.F.SETFL, self.original_flags);
-        };
-        var raw = self.original;
-        cfmakeraw(&raw);
-        raw.cc[@backingInt(c.V.MIN)] = 1;
-        raw.cc[@backingInt(c.V.TIME)] = 0;
-        if (c.tcsetattr(self.fd, .NOW, &raw) != 0) return error.TerminalAttributes;
-        self.raw = true;
-        try self.write("\x1b[?1049h\x1b[?25l\x1b[0m");
+        while (true) {
+            try self.checkTermination();
+            if (suspended.swap(false, .monotonic)) {
+                self.leave();
+                _ = c.raise(.STOP);
+                continue;
+            }
+            const nonblocking = self.original_flags | @as(c_int, 1 << @bitOffsetOf(c.O, "NONBLOCK"));
+            if (c.fcntl(self.fd, c.F.SETFL, nonblocking) < 0) return error.TerminalDescriptor;
+            errdefer if (!self.raw) {
+                _ = c.fcntl(self.fd, c.F.SETFL, self.original_flags);
+            };
+            var raw = self.original;
+            cfmakeraw(&raw);
+            raw.cc[@backingInt(c.V.MIN)] = 1;
+            raw.cc[@backingInt(c.V.TIME)] = 0;
+            if (c.tcsetattr(self.fd, .NOW, &raw) != 0) return error.TerminalAttributes;
+            self.raw = true;
+            self.write("\x1b[?1049h\x1b[?25l\x1b[0m") catch |err| {
+                if (err == error.TerminalInterrupted) continue;
+                return err;
+            };
+            return;
+        }
     }
 
     fn leave(self: *Terminal) void {
@@ -115,9 +127,7 @@ pub const Terminal = struct {
 
     pub fn checkSignals(self: *Terminal) !bool {
         try self.checkTermination();
-        if (suspended.swap(false, .monotonic)) {
-            self.leave();
-            _ = c.raise(.STOP);
+        if (suspended.load(.monotonic)) {
             try self.enter();
             return true;
         }
