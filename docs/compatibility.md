@@ -1,7 +1,10 @@
 # Rust compatibility baseline
 
 This baseline records `tms` at `a91ea21780acb58eced5b7f52da7f212f6ca33f0`.
-The Rust implementation is unchanged. Captured defects describe existing behavior, not approval to keep the defects.
+Rust source was retained unchanged during verification, then removed in `6c4daab`.
+Captured defects describe reference behavior, not approval to keep the defects.
+This document records the baseline; see [migration status](zig-migration.md)
+for subsequent coverage and final results.
 
 ## Test data
 
@@ -11,7 +14,7 @@ Each step specifies `argv` and can set its working directory, environment, input
 State includes the parsed config, tmux sessions, windows, paths, client requests, and sent keys.
 
 `tests/compat/ranking.json` contains query, input-order, and ranked-output lists.
-`examples/compat_oracle.rs` evaluates those lists with the existing Nucleo dependency.
+The historical `examples/compat_oracle.rs` evaluates those lists with Nucleo.
 It uses the same default matcher configuration, smart case, and smart normalization as the picker.
 It waits for matching to finish instead of depending on thread timing.
 The oracle has one protocol:
@@ -73,16 +76,27 @@ The verified toolchain uses Rust 1.99.0, Python 3.15.2, tmux 3.8, Git 2.56.0, an
 The Python runner requires Python 3.11 or later and uses only the standard library.
 Git must support orphan worktrees. Existing tests also require relative worktree support.
 
-The parent can add mise tasks for these commands:
+Current candidate checks use:
 
 ```sh
-mise exec rust@1.99.0 -- cargo build --locked
-mise exec rust@1.99.0 -- cargo build --locked --example compat_oracle
-mise exec python@3 rust@1.99.0 tmux@3.8 -- python3 scripts/compat.py --rust-tests
-mise exec python@3 jj@0.38.0 tmux@3.8 -- python3 scripts/compat.py --jj --oracle target/debug/examples/compat_oracle
-mise exec python@3 tmux@3.8 -- python3 scripts/compat_terminal.py
+mise run test:compat
+mise run test:terminal:strict
 ```
 
+To reproduce the Rust reference, create a detached worktree at `3ad4fda`.
+That revision retains the unchanged Rust implementation, ranking oracle,
+private-socket harness, and pinned Rust tasks:
+
+```sh
+git worktree add --detach ../tms-rust-reference 3ad4fda
+cd ../tms-rust-reference
+mise trust
+mise install --locked
+mise run test:compat:rust
+mise run test:terminal:rust
+```
+
+The current differential scripts also accept separately built reference binaries.
 An arbitrary candidate is selected with `TMS_BIN=/absolute/path/to/tms` or `--bin`.
 `--case NAME` selects one case and can be repeated.
 `--jj` includes the real jj fixtures. Omitting it prints explicit skips.
@@ -145,13 +159,14 @@ These are exact returned-order fixtures. They do not record score values or high
 The terminal script covers Escape, Ctrl-C, a custom cancel shortcut, filtering and confirmation, bottom and top navigation, and recovery from no matches with Backspace.
 It asserts the chosen real tmux session, rather than only checking screen text.
 It does not compare terminal control bytes or pixel layout.
-The existing picker is native Rust. Neither these tests nor the picker use fzf.
+The reference picker is native Rust. Neither implementation uses fzf.
 
 ### Existing Rust tests
 
 The unchanged Cargo suite contains 7 library tests, 3 CLI tests, and 6 repository tests.
 They also cover non-ASCII editing, duplicate-name generation, bare-repository workspace classification, and relative Git worktree paths.
-The safe `--rust-tests` entry point supplies the private-socket shim even if a future test invokes real tmux.
+The historical `--rust-tests` entry point supplies the private-socket shim.
+It is retained in the reference worktree, not the current Zig runner.
 The existing CLI test has its own fake tmux and logs joined arguments. The new shim keeps argument boundaries.
 
 ## Source-derived behavior and remaining gaps

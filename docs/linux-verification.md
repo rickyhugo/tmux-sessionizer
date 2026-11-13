@@ -4,6 +4,43 @@ This report checks the behavior-preserving Zig rewrite on native Linux.
 The run uses real Git, jj, tmux, PTYs, and a second filesystem.
 It does not change compatibility goldens or test assertions.
 
+## Final integration verification
+
+The coordinator reran `scripts/linux-check.sh` against `3ad4fda` in
+`/work-final`, using the same native aarch64 VM and pinned tools below.
+All ten script steps returned zero. The tested application source also matches
+the Rust-retirement commit `6c4daab`: SHA-256 comparison checked 72 build,
+source, and vendor files against the running containers.
+
+| Check | Result |
+| --- | --- |
+| Process suite | 18 passed; three Darwin-only skips |
+| Cross-device content and metadata fixtures | Both passed |
+| Non-UTF-8 filename fixture | Passed |
+| Module suite | 97 passed; eight expected skips |
+| Repository suite | All 31 passed |
+| Compatibility and terminal harnesses | All 22 passed |
+| Command adapters | All 23 passed, plus real comma-session PTY |
+| Focused picker regressions | All nine passed |
+| Command compatibility | All 42 passed |
+| Stored ranking vectors | All 25 passed |
+| Strict PTY and popup scenarios | All 21 passed |
+
+The eight module skips are three Darwin-specific process cases and five app
+fixtures that require the fake process adapter. No Linux metadata case skipped.
+The script sets `TMS_TEST_ALLOW_UNSUPPORTED_XATTR=0`; xattr or ACL fixture
+failures cannot silently pass.
+
+Release executable SHA-256:
+`c210ba0ab3cf25dceea4213aa2749bfab1fe9ba30a4738f320ff10e8f0db946d`.
+Oracle SHA-256:
+`92cb0fc64d2c1497c6f21c92d92f00a5a758709aa5497ab537121f4afd494d4c`.
+
+Logs and transcripts are retained in `.audit/linux-final` both in the
+integration checkout and the container. The top-level transcript is
+`.audit/linux-final.log`; `.audit/final-source.sha256` records source hashes.
+Earlier runs below are historical and include differences now fixed.
+
 ## Source and environment
 
 The initial source is `4e46c618c075c0d208383cd0e982d0cc15b45c1a`.
@@ -61,7 +98,7 @@ The two command failures are the known `invalid-toml` diagnostic and `jj-workspa
 The invalid-TOML output is `(line 2) missing value` instead of Rust's detailed array diagnostic.
 The jj completion output adds `linked` and `project` before `--help`.
 
-## Final results
+## Pre-final results
 
 | Check | Result |
 | --- | --- |
@@ -96,6 +133,10 @@ Both actual cross-device fixtures pass:
 
 - `native move crosses devices when a writable second filesystem is available`.
 - `native move preserves metadata and ACLs across a real device boundary`.
+
+The coordinator independently reran the process suite in the retained container.
+It passed 18 tests with only the Darwin ACL fixture skipped. A separate rerun of
+the non-UTF-8 filename fixture also passed.
 
 The first fixture verifies that native rename returns `CrossDevice` before calling `movePath`.
 The second covers contents, hardlinks, symlinks, FIFO kind, ownership, permissions, timestamps, xattrs, and Linux ACLs.
@@ -140,9 +181,9 @@ Without `NO_RUST`, Git's build requires Cargo.
 `scripts/linux-check.sh` checks Linux, exact tool versions, and distinct writable filesystems before running tests.
 It records environment details, command output, exit statuses, binary hashes, and PTY transcripts.
 It does not convert known compatibility failures into success.
-Its final exit status remains 1 while either command mismatch exists.
+It returns nonzero for any failing step. The final integrated run returns zero.
 
-The final run command in the retained container is:
+The pre-final run command in the retained container was:
 
 ```sh
 	docker --context colima-tms-zig-check exec -w /work \
@@ -185,4 +226,5 @@ It reports Nix 2.35.6.
 The image is `nixos/nix@sha256:b49cb33f3a7e5cf3933ad8774529de0e3807ec5cf54987aa7ccdfb49f2fc55ed`.
 The probe container used `--rm` and is gone.
 The image remains cached in the dedicated profile.
-No Nix packaging build is claimed.
+Subsequent package and sandbox verification is recorded in
+[Nix verification](nix-verification.md).
