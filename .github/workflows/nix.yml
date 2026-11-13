@@ -24,6 +24,8 @@ jobs:
           - runner: macos-15
             system: aarch64-darwin
     runs-on: ${{ matrix.runner }}
+    env:
+      MISE_AUTO_INSTALL: "false"
     steps:
       - uses: actions/checkout@v6
         with:
@@ -37,7 +39,6 @@ jobs:
           version: "2026.10.17"
           install: false
           cache: false
-      - run: mise install --locked
       - name: Check and build native Nix package
         env:
           NIX_SYSTEM: ${{ matrix.system }}

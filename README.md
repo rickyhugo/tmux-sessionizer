@@ -217,20 +217,20 @@ new executable if that directory comes first on `PATH`.
 
 ### From source
 
-Install [mise](https://mise.jdx.dev/getting-started.html), then run:
+Install [mise](https://mise.jdx.dev/getting-started.html) 2026.10.17 or newer, then run:
 
 ```sh
 git clone https://github.com/rickyhugo/tmux-sessionizer.git
 cd tmux-sessionizer
 mise trust
-mise install --locked
-mise run install
+mise install --locked zig python
+MISE_AUTO_INSTALL=false mise run install
 ```
 
 The default prefix is `$HOME/.local`. Add `$HOME/.local/bin` to `PATH`.
-Use `mise run install -- /another/prefix` to change the prefix. The source build
-uses Zig 0.17.1 and does not require Cargo after the Rust reference is retired.
-During the migration, mise still installs Rust for the compatibility reference.
+Use `MISE_AUTO_INSTALL=false mise run install -- /another/prefix` to change the prefix.
+The source build uses Zig 0.17.1. These commands do not install the Rust
+compatibility reference or hk.
 
 ### Nix
 
@@ -256,9 +256,14 @@ CI calls `mise run ci`, which validates hk and runs the same checks with
 compatibility checks before the Zig switch. A passing foundation build does not
 prove compatibility.
 
-`nix develop` provides mise, not a separate development toolchain. Run the same
-mise commands inside that shell. The Nix package build uses its own hash-pinned
-Zig 0.17.1 compiler without network installs inside the build sandbox.
+hk 2.12.0 has no Intel macOS release binary. The full developer tool install,
+hk formatting, hooks, and shared CI task are not supported on Intel Macs with this
+pin. The source commands above and the native Nix and archive builds do not need
+hk. Shared CI still runs every check on Linux x86-64 and Apple Silicon.
+
+`nix develop` provides pinned mise 2026.10.17, not a separate development toolchain.
+Run the same mise commands inside that shell. The Nix package build uses its own
+hash-pinned Zig 0.17.1 compiler without network installs inside the build sandbox.
 See [packaging details](docs/packaging.md) for release tasks and outstanding gates.
 
 ## Usage Notes

@@ -47,6 +47,64 @@
             };
           };
           compilerSource = compilerSources.${system};
+          miseSources = {
+            x86_64-linux = {
+              platform = "linux-x64-musl";
+              sha256 = "54dc5f1a0de14bddf70a4d8273603647c140eedd8b9d083a8f73ca13a9a82f53";
+            };
+            aarch64-linux = {
+              platform = "linux-arm64-musl";
+              sha256 = "745a1a5401c42090953a8da493243d5c666fffc2c98f9a3dee33bd8afc77a9ee";
+            };
+            x86_64-darwin = {
+              platform = "macos-x64";
+              sha256 = "e42418100e2f781f9be00b9feaa60378e77551741faececc2bf360992c5410c8";
+            };
+            aarch64-darwin = {
+              platform = "macos-arm64";
+              sha256 = "d7c50c1683524a764260986ccc9c41c0de5e1fcd491714b5640b657b76781af6";
+            };
+          };
+          miseSource = miseSources.${system};
+          mise = pkgs.stdenvNoCC.mkDerivation {
+            pname = "mise";
+            version = "2026.10.17";
+            src = pkgs.fetchurl {
+              url = "https://github.com/jdx/mise/releases/download/v2026.10.17/mise-v2026.10.17-${miseSource.platform}.tar.gz";
+              inherit (miseSource) sha256;
+            };
+            nativeBuildInputs = [ pkgs.makeWrapper ];
+            dontConfigure = true;
+            dontBuild = true;
+            dontFixup = true;
+            installPhase = ''
+              runHook preInstall
+              install -Dm755 bin/mise "$out/bin/mise"
+              install -Dm644 LICENSE "$out/share/licenses/mise/LICENSE"
+              mkdir -p "$out/lib/mise"
+              touch "$out/lib/mise/.disable-self-update"
+              wrapProgram "$out/bin/mise" \
+                --prefix PATH : ${lib.makeBinPath [ pkgs.bash pkgs.coreutils pkgs.git ]} \
+                --set-default SSL_CERT_FILE ${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt
+              runHook postInstall
+            '';
+            doInstallCheck = true;
+            installCheckPhase = ''
+              runHook preInstallCheck
+              export HOME="$TMPDIR"
+              export MISE_DISABLE_UPDATE_WARNING=1
+              "$out/bin/mise" --version | grep -F "2026.10.17"
+              "$out/bin/mise" backends ls | grep -Fx packslip
+              runHook postInstallCheck
+            '';
+            meta = {
+              description = "Pinned mise task runner with the packslip backend";
+              homepage = "https://mise.jdx.dev";
+              license = lib.licenses.mit;
+              mainProgram = "mise";
+              platforms = builtins.attrNames miseSources;
+            };
+          };
           zig = pkgs.stdenvNoCC.mkDerivation {
             pname = "zig";
             version = "0.17.1";
@@ -122,7 +180,7 @@
             meta = {
               description = "Tmux session manager with an embedded picker";
               homepage = "https://github.com/rickyhugo/tmux-sessionizer";
-              license = lib.licenses.mit;
+              license = with lib.licenses; [ mit mpl20 asl20 unicode-30 ];
               mainProgram = "tms";
               platforms = builtins.attrNames compilerSources;
             };
@@ -133,9 +191,9 @@
             default = tmux-sessionizer;
             inherit tmux-sessionizer;
           };
-          checks = { inherit tmux-sessionizer; };
+          checks = { inherit tmux-sessionizer mise; };
           devShells.default = pkgs.mkShellNoCC {
-            packages = [ pkgs.mise ];
+            packages = [ mise ];
           };
         };
 

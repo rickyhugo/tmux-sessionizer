@@ -30,6 +30,8 @@ jobs:
           - target: x86_64-unknown-linux-musl
             runner: ubuntu-24.04
     runs-on: ${{ matrix.runner }}
+    env:
+      MISE_AUTO_INSTALL: "false"
     steps:
       - uses: actions/checkout@v6
         with:
@@ -39,7 +41,7 @@ jobs:
           version: "2026.10.17"
           install: false
           cache: false
-      - run: mise install --locked
+      - run: mise install --locked zig python
       - name: Check release tag
         if: startsWith(github.ref, 'refs/tags/')
         env:
@@ -59,6 +61,8 @@ jobs:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && github.repository == 'rickyhugo/tmux-sessionizer'
     needs: [package]
     runs-on: ubuntu-24.04
+    env:
+      MISE_AUTO_INSTALL: "false"
     permissions:
       contents: write
     steps:
@@ -70,7 +74,7 @@ jobs:
           version: "2026.10.17"
           install: false
           cache: false
-      - run: mise install --locked
+      - run: mise install --locked gh
       - uses: actions/download-artifact@v7
         with:
           pattern: release-*

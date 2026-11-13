@@ -13,10 +13,28 @@ checks or replace them with build checks.
 ## Developer tools and package compiler
 
 `mise.toml` pins the developer tools, including Zig 0.17.1 and hk 2.12.0.
-`mise.lock` records downloads for each runner platform.
-CI installs them with `mise install --locked` and runs `mise run ci`.
+`mise.lock` records the available upstream downloads.
+Shared CI installs all tools with `mise install --locked` and runs `mise run ci`
+on Linux x86-64 and Apple Silicon.
 That task runs `hk validate --deny-warnings` and `hk check --all`.
 Local hooks use the same hk configuration. CI does not need `hk install`.
+
+The [hk 2.12.0 release](https://github.com/jdx/hk/releases/tag/v2.12.0)
+has no Intel macOS binary. A regenerated lock cannot fix that missing asset.
+The full developer tool install, hk formatting, hooks, and shared CI task are not
+supported on Intel Macs with this pin. Native archive and Nix builds still run
+on Intel Macs because they do not use hk.
+
+Archive jobs install only `zig` and `python` with `mise install --locked zig python`.
+The Nix job installs no mise-managed tools. The publish job installs only `gh`.
+Each of these jobs sets `MISE_AUTO_INSTALL=false` for every step.
+The [mise auto-install setting](https://mise.jdx.dev/configuration/settings.html#auto_install)
+disables automatic installs in `mise run`, `mise exec`, and nested task commands.
+The [pinned mise settings](https://github.com/jdx/mise/blob/v2026.10.17/settings.toml)
+define the same behavior.
+Selecting tools for `mise install` alone does not stop a later `mise run`
+from installing the other configured tools.
+The shared CI job retains the full install and every compatibility check.
 
 The Nix package uses an independent Zig 0.17.1 derivation.
 Its four download hashes come from the
@@ -29,8 +47,20 @@ The sandbox does not install or invoke mise.
 Linux Nix packages target musl so the executable does not need a host libc loader.
 Darwin packages use the SDK from the locked nixpkgs revision.
 
-`nix develop` provides mise as the developer task runner.
-It does not expose the package compiler as a second developer toolchain.
+`nix develop` provides mise 2026.10.17 as the developer task runner.
+The locked nixpkgs mise is 2026.5.12 and lacks the `packslip` backend required by
+the hk entry in `mise.lock`.
+The shell uses a separate derivation of the
+[official mise release](https://github.com/jdx/mise/releases/tag/v2026.10.17).
+Its four archive hashes match the release's
+[SHASUMS256.txt](https://github.com/jdx/mise/releases/download/v2026.10.17/SHASUMS256.txt)
+and GitHub asset digests.
+Linux uses the static musl binaries, which have no host loader dependency.
+Darwin binaries link only to Apple's system libraries and frameworks.
+The derivation preserves the upstream binaries without fixup.
+Its wrapper supplies Bash, coreutils, Git, and a default CA certificate bundle.
+Native Nix checks verify the mise version and `packslip` backend on every system.
+`nix develop` does not expose the package compiler as a second developer toolchain.
 `.envrc` watches the flake and mise files and enters that shell.
 
 ## Version source
@@ -100,6 +130,9 @@ The flake exports `packages.default`, `packages.tmux-sessionizer`, and
 `overlays.default`. Its package checks run Zig tests and compare `--version`.
 It also installs shell completions through the executable's `COMPLETE` protocol.
 These Nix checks do not replace the shared hk compatibility checks.
+The package metadata lists MIT, MPL-2.0, Apache-2.0, and Unicode-3.0 for the
+application and bundled matcher notices. Unicode code offers MIT or Apache-2.0.
+The matcher notices retain that choice.
 
 `release.yml` calls both check workflows before it builds archives.
 Pull requests and manual dispatches upload workflow artifacts only.
@@ -162,8 +195,9 @@ The strict terminal step follows command and ranking compatibility.
 Both checks must use the release build, without concurrent writes to `zig-out`.
 The unchanged Rust suite stays in the migration checks until the parent retires it.
 
-Regenerate `mise.lock` for `linux-x64`, `linux-arm64`, `macos-x64`, and `macos-arm64`
-before CI runs. The foundation lock lacks some Intel macOS tool entries.
+Regenerate `mise.lock` for the available tool downloads on `linux-x64`,
+`linux-arm64`, `macos-x64`, and `macos-arm64` before CI runs.
+hk 2.12.0 has no `macos-x64` entry because upstream has no binary for that platform.
 Add `gh = "2.103.3"` to the mise tools for `release:draft`.
 Pin any additional formatter or workflow linter in mise before adding its task.
 The Nix job's matrix identifies the expected system in `NIX_SYSTEM`.
@@ -217,6 +251,26 @@ These results do not establish usable `tms` behavior.
 Nix is unavailable locally, so Nix evaluation, sandbox builds, completion
 installation, and all four native Nix checks remain unexecuted.
 The committed Nix workflow performs those checks after the parent pushes.
+
+The focused portability fix used mise 2026.10.17 with isolated config, data,
+cache, state, and home directories. Its fixture configured Zig, Python, and a
+missing HTTP tool at `http://127.0.0.1:1/missing`.
+`MISE_AUTO_INSTALL=false mise install --locked zig python` installed only Zig
+and Python. `mise run` then executed both tools and a nested task without
+installing the missing tool. Without `MISE_AUTO_INSTALL=false`, the same task
+failed on the missing tool before its commands ran.
+A separate task passed with an empty install directory and automatic installs off.
+This verifies the tool isolation mechanism, not a Nix build.
+
+All four mise archives were downloaded and hashed against the release checksums
+and GitHub asset digests. `file` identified both Linux binaries as static.
+`otool -L` showed only Apple system dependencies for both Darwin binaries.
+The downloaded Apple Silicon binary reported 2026.10.17 and listed `packslip`.
+Tree-sitter-nix 0.1.0 parsed the flake without syntax errors.
+Actionlint 1.7.12 passed the workflows. ShellCheck 0.11.0 passed the installer
+and extracted mise derivation phases, with Nix-provided variables excluded from
+the extracted phase check.
+Nix evaluation and native builds remain unexecuted locally.
 
 ## Tool documentation
 
