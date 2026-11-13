@@ -246,8 +246,40 @@ pub fn cloneRepo(io: Io, a: A, remote: []const u8, target: []const u8) anyerror!
     });
 }
 
-pub fn initRepo(io: Io, a: A, target: []const u8) anyerror!void {
-    _ = try checked(io, a, &.{ "git", "init", "--quiet", target }, null);
+pub fn initRepo(io: Io, a: A, target: []const u8, env: *const std.process.Environ.Map) anyerror!void {
+    const metadata = try std.fs.path.join(a, &.{ target, ".git" });
+    defer a.free(metadata);
+    if (Io.Dir.cwd().statFile(io, metadata, .{ .follow_symlinks = false })) |_| {
+        return error.GitError;
+    } else |err| switch (err) {
+        error.FileNotFound => {},
+        else => return error.GitError,
+    }
+    var child_env = try env.clone(a);
+    defer child_env.deinit();
+    // gix::init creates the requested layout directly; these Git CLI overrides
+    // must not redirect its replacement away from that layout.
+    for ([_][]const u8{ "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY" }) |key| {
+        _ = child_env.swapRemove(key);
+    }
+    const output = try process.capture(io, a, .{
+        .argv = &.{ "git", "init", "--quiet", "--object-format=sha1", "--template=", target },
+        .env = &child_env,
+        .stdin = .ignore,
+    });
+    if (!success(output.term)) return error.GitError;
+    try @import("repos/templates.zig").write(io, metadata);
+    const branch = try process.capture(io, a, .{
+        .argv = &.{ "git", "--git-dir", metadata, "--work-tree", target, "config", "--get", "init.defaultBranch" },
+        .env = &child_env,
+        .stdin = .ignore,
+    });
+    if (branch.term == .exited and branch.term.exited == 1) {
+        // gix defaults to main, unlike Git's version-dependent initial branch.
+        const head = try std.fs.path.join(a, &.{ metadata, "HEAD" });
+        defer a.free(head);
+        try Io.Dir.cwd().writeFile(io, .{ .sub_path = head, .data = "ref: refs/heads/main\n" });
+    } else if (!success(branch.term)) return error.GitError;
 }
 
 fn appendSubmodules(io: Io, a: A, repo: Resolved, prefix: []const u8, recursive: bool, result: *std.ArrayList(Submodule)) anyerror!void {

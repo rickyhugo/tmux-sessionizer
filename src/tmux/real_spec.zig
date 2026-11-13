@@ -54,4 +54,12 @@ test "real tmux session window pane and socket lifecycle" {
     try std.testing.expect(tmux.succeeded((try client.killWindow(io, a, windows[1].id)).term));
     try std.testing.expect(tmux.succeeded((try client.killSession(io, a, "renamed")).term));
     try std.testing.expectEqual(@as(usize, 1), (try client.snapshot(io, a)).sessions.len);
+    const remaining = (try client.snapshot(io, a)).sessions[0].name;
+    try std.testing.expect(tmux.succeeded((try client.newSession(io, a, "quo'te,ui", path)).term));
+    try std.testing.expect(tmux.succeeded((try client.killSession(io, a, remaining)).term));
+    const listing = try client.listingSnapshot(io, a);
+    try std.testing.expectEqual(@as(usize, 1), listing.sessions.len);
+    try std.testing.expectEqualStrings("quo'te,ui", listing.sessions[0].name);
+    try std.testing.expectEqualStrings("quo'te,ui", listing.current.?.name);
+    try std.testing.expectEqualStrings("quote,ui", (try client.snapshot(io, a)).sessions[0].name);
 }

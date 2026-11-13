@@ -18,6 +18,15 @@ fn clean(a: A, text: []const u8) ![]const u8 {
     return std.mem.replaceOwned(u8, a, std.mem.trim(u8, text, " \r\n"), "'", "");
 }
 
+fn snapshotText(a: A, text: []const u8, literal: bool) ![]const u8 {
+    if (!literal) return clean(a, text);
+    const trimmed = std.mem.trim(u8, text, " \r\n");
+    return if (trimmed.len >= 2 and trimmed[0] == '\'' and trimmed[trimmed.len - 1] == '\'')
+        trimmed[1 .. trimmed.len - 1]
+    else
+        trimmed;
+}
+
 pub fn succeeded(term: std.process.Child.Term) bool {
     return switch (term) {
         .exited => |code| code == 0,
@@ -38,18 +47,28 @@ pub const Client = struct {
     }
 
     pub fn snapshot(self: *const Client, io: Io, a: A) anyerror!Snapshot {
+        return self.readSnapshot(io, a, false);
+    }
+
+    pub fn listingSnapshot(self: *const Client, io: Io, a: A) anyerror!Snapshot {
+        // Listing uses literal names. Other commands retain Rust's historical
+        // apostrophe stripping through snapshot().
+        return self.readSnapshot(io, a, true);
+    }
+
+    fn readSnapshot(self: *const Client, io: Io, a: A, literal: bool) anyerror!Snapshot {
         const output = try self.execute(io, a, &.{ "list-sessions", "-F", "'#{session_name},#{session_attached},#{session_last_attached}'" });
         var list: std.ArrayList(SessionInfo) = .empty;
         var lines = std.mem.tokenizeScalar(u8, output.stdout, '\n');
         while (lines.next()) |line| {
-            var fields = std.mem.splitBackwardsScalar(u8, try clean(a, line), ',');
+            var fields = std.mem.splitBackwardsScalar(u8, try snapshotText(a, line, literal), ',');
             const timestamp = fields.next() orelse continue;
             const attached = fields.next() orelse continue;
             const name = fields.rest();
             try list.append(a, .{ .name = name, .attached = !std.mem.eql(u8, attached, "0"), .last_attached = timestamp });
         }
-        const name = try clean(a, (try self.execute(io, a, &.{ "display-message", "-p", "'#S'" })).stdout);
-        const cwd = try clean(a, (try self.execute(io, a, &.{ "display-message", "-p", "'#{session_path}'" })).stdout);
+        const name = try snapshotText(a, (try self.execute(io, a, &.{ "display-message", "-p", "'#S'" })).stdout, literal);
+        const cwd = try snapshotText(a, (try self.execute(io, a, &.{ "display-message", "-p", "'#{session_path}'" })).stdout, literal);
         return .{ .sessions = try list.toOwnedSlice(a), .current = if (name.len == 0) null else .{ .name = name, .path = cwd } };
     }
 

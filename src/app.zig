@@ -128,7 +128,7 @@ const App = struct {
     }
 
     fn listSessions(self: App) !void {
-        const snapshot = try self.client.snapshot(self.io, self.a);
+        const snapshot = try self.client.listingSnapshot(self.io, self.a);
         try self.print(try sessionListing(self.a, snapshot));
         try self.io.sleep(.fromMilliseconds(100), .awake);
         _ = try self.client.refreshClient(self.io, self.a);
@@ -226,7 +226,7 @@ const App = struct {
     fn initRepo(self: App, name: []const u8) !void {
         const root = (try self.searchPath()) orelse return;
         const target = if (std.fs.path.isAbsolute(name)) name else try std.fs.path.join(self.a, &.{ root, name });
-        try repos.initRepo(self.io, self.a, target);
+        try repos.initRepo(self.io, self.a, target, self.env);
         const session_name = try self.creationName(name, target);
         _ = try self.client.newSession(self.io, self.a, session_name, target);
         try self.client.switchTo(self.io, self.a, session_name);
@@ -387,6 +387,10 @@ test "session listing retains asterisk, trailing spaces, and empty server marker
             .{ .name = "current", .attached = true, .last_attached = "1" },
             .{ .name = "fallback", .attached = false, .last_attached = "0" },
         },
+    }));
+    try std.testing.expectEqualStrings("quo'te,ui*  \n", try sessionListing(a, .{
+        .current = .{ .name = "quo'te,ui", .path = "/current" },
+        .sessions = &.{.{ .name = "quo'te,ui", .attached = true, .last_attached = "1" }},
     }));
 }
 fn expectCall(index: usize, args: []const []const u8) !void {

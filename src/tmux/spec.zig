@@ -31,6 +31,28 @@ test "snapshot preserves timestamp text, attached state, and current path" {
     try expectArgs(1, &.{ "display-message", "-p", "'#S'" });
 }
 
+test "listing preserves literal apostrophes and comma names while legacy snapshots still clean them" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const outputs: []const fake.Output = &.{
+        .{ .stdout = "'quo'te,ui,0,009'\n''edge',1,10'\n" },
+        .{ .stdout = "''edge''\n" },
+        .{ .stdout = "'/work/quo'te'\n" },
+    };
+    fake.reset(a, outputs);
+    const listing = try client.listingSnapshot(std.testing.io, a);
+    try std.testing.expectEqualStrings("quo'te,ui", listing.sessions[0].name);
+    try std.testing.expectEqualStrings("'edge'", listing.sessions[1].name);
+    try std.testing.expectEqualStrings("'edge'", listing.current.?.name);
+    try std.testing.expectEqualStrings("/work/quo'te", listing.current.?.path);
+    try std.testing.expectEqualStrings("009", listing.sessions[0].last_attached);
+    fake.reset(a, outputs);
+    const legacy = try client.snapshot(std.testing.io, a);
+    try std.testing.expectEqualStrings("quote,ui", legacy.sessions[0].name);
+    try std.testing.expectEqualStrings("edge", legacy.current.?.name);
+}
+
 test "window active and attached fields remain distinct" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();

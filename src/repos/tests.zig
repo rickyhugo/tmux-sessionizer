@@ -150,13 +150,18 @@ const Fixture = struct {
         try self.git(path_, &.{ "commit", "--quiet", "--allow-empty", "-m", "initial" });
         return .{ .path = path_, .provider = .git };
     }
+
+    fn initRepo(self: *Fixture, target: []const u8) !void {
+        var env = try std.testing.environ.createMap(self.a());
+        try repos.initRepo(io, self.a(), target, &env);
+    }
 };
 
 test "real git init clone and ignored clone failure" {
     var f = try Fixture.init();
     defer f.deinit();
     const fresh = try f.path("fresh");
-    try repos.initRepo(io, f.a(), fresh);
+    try f.initRepo(fresh);
     const ref = (try repos.detect(io, fresh, &.{.git})).?;
     const opened = try repos.resolve(io, f.a(), ref);
     try std.testing.expect(!opened.bare and !opened.linked);
@@ -171,7 +176,86 @@ test "real git init clone and ignored clone failure" {
     dir.close(io);
     try std.testing.expectEqual(null, try repos.detect(io, failed, &.{.git}));
     try f.tmp.dir.writeFile(io, .{ .sub_path = "blocking-file", .data = "file" });
-    try std.testing.expectError(error.GitError, repos.initRepo(io, f.a(), try f.path("blocking-file")));
+    try std.testing.expectError(error.GitError, f.initRepo(try f.path("blocking-file")));
+}
+
+test "init refuses existing metadata without reinitializing it" {
+    var f = try Fixture.init();
+    defer f.deinit();
+    try f.tmp.dir.createDirPath(io, "empty/.git");
+    try std.testing.expectError(error.GitError, f.initRepo(try f.path("empty")));
+    try std.testing.expect(!exists(try f.path("empty/.git/HEAD")));
+    const initialized = try f.repo("initialized");
+    const before = try f.tmp.dir.readFileAlloc(io, "initialized/.git/config", f.a(), .unlimited);
+    try std.testing.expectError(error.GitError, f.initRepo(initialized.path));
+    try std.testing.expectEqualStrings(before, try f.tmp.dir.readFileAlloc(io, "initialized/.git/config", f.a(), .unlimited));
+    try f.tmp.dir.createDirPath(io, "pointer");
+    try f.tmp.dir.writeFile(io, .{ .sub_path = "pointer/.git", .data = "gitdir: ../initialized/.git\n" });
+    try std.testing.expectError(error.GitError, f.initRepo(try f.path("pointer")));
+}
+
+fn exists(path: []const u8) bool {
+    std.Io.Dir.cwd().access(io, path, .{}) catch return false;
+    return true;
+}
+
+test "init does not inherit repository layout redirects" {
+    var f = try Fixture.init();
+    defer f.deinit();
+    for ([_][]const u8{ "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY" }) |key| {
+        var env = try std.testing.environ.createMap(f.a());
+        const redirect = try f.path(try std.fmt.allocPrint(f.a(), "{s}-redirect", .{key}));
+        try f.tmp.dir.createDirPath(io, redirect);
+        try env.put(key, redirect);
+        const target = try f.path(key);
+        try repos.initRepo(io, f.a(), target, &env);
+        try std.testing.expect(exists(try std.fs.path.join(f.a(), &.{ target, ".git/HEAD" })));
+        try std.testing.expect(exists(try std.fs.path.join(f.a(), &.{ target, ".git/objects" })));
+        try std.testing.expect(!exists(try std.fs.path.join(f.a(), &.{ redirect, "HEAD" })));
+        try std.testing.expect(!exists(try std.fs.path.join(f.a(), &.{ redirect, "info" })));
+    }
+}
+
+test "init keeps the reference hash and templates but honors the configured branch" {
+    var f = try Fixture.init();
+    defer f.deinit();
+    try f.tmp.dir.createDirPath(io, "template/hooks");
+    try f.tmp.dir.writeFile(io, .{ .sub_path = "template/hooks/post-checkout", .data = "custom hook\n" });
+    for ([_]bool{ false, true }) |environment_template| {
+        var env = try std.testing.environ.createMap(f.a());
+        try env.put("GIT_CONFIG_GLOBAL", "/dev/null");
+        try env.put("GIT_CONFIG_NOSYSTEM", "1");
+        try env.put("GIT_CONFIG_COUNT", "3");
+        try env.put("GIT_CONFIG_KEY_0", "init.defaultBranch");
+        try env.put("GIT_CONFIG_VALUE_0", "configured");
+        try env.put("GIT_CONFIG_KEY_1", "init.defaultObjectFormat");
+        try env.put("GIT_CONFIG_VALUE_1", "sha256");
+        try env.put("GIT_CONFIG_KEY_2", "init.templateDir");
+        try env.put("GIT_CONFIG_VALUE_2", try f.path("template"));
+        try env.put("GIT_DEFAULT_HASH", "sha256");
+        if (environment_template) try env.put("GIT_TEMPLATE_DIR", try f.path("template"));
+        const target = try f.path(if (environment_template) "environment" else "config");
+        try repos.initRepo(io, f.a(), target, &env);
+        const cfg = try std.Io.Dir.cwd().readFileAlloc(io, try std.fs.path.join(f.a(), &.{ target, ".git/config" }), f.a(), .unlimited);
+        try std.testing.expect(std.mem.indexOf(u8, cfg, "sha256") == null);
+        try std.testing.expectEqualStrings("ref: refs/heads/configured\n", try std.Io.Dir.cwd().readFileAlloc(io, try std.fs.path.join(f.a(), &.{ target, ".git/HEAD" }), f.a(), .unlimited));
+        try std.testing.expect(!exists(try std.fs.path.join(f.a(), &.{ target, ".git/hooks/post-checkout" })));
+        try std.testing.expectEqualStrings("Unnamed repository; everything before the `;` is the name of the repository.\n", try std.Io.Dir.cwd().readFileAlloc(io, try std.fs.path.join(f.a(), &.{ target, ".git/description" }), f.a(), .unlimited));
+        const hook = try std.Io.Dir.cwd().readFileAlloc(io, try std.fs.path.join(f.a(), &.{ target, ".git/hooks/pre-commit.sample" }), f.a(), .unlimited);
+        try std.testing.expect(std.mem.indexOf(u8, hook, "A sample hook to prevent commits with merge-markers") != null);
+    }
+}
+
+test "init defaults to main without an init default branch setting" {
+    var f = try Fixture.init();
+    defer f.deinit();
+    var env = try std.testing.environ.createMap(f.a());
+    try env.put("GIT_CONFIG_GLOBAL", "/dev/null");
+    try env.put("GIT_CONFIG_NOSYSTEM", "1");
+    try env.put("GIT_CONFIG_COUNT", "0");
+    _ = env.swapRemove("GIT_CONFIG_PARAMETERS");
+    try repos.initRepo(io, f.a(), try f.path("fresh"), &env);
+    try std.testing.expectEqualStrings("ref: refs/heads/main\n", try f.tmp.dir.readFileAlloc(io, "fresh/.git/HEAD", f.a(), .unlimited));
 }
 
 test "real git linked checkouts are discovered separately and names use administrative IDs" {
