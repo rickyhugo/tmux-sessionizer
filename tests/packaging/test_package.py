@@ -26,6 +26,7 @@ SOURCE_NOTICES = (
     "src/cli/registration/LICENSE",
     "src/config/UNICODE-LICENSE",
     "src/picker/LICENSE-unicode-width",
+    "src/repos/template/LICENSE",
     "vendor/licenses/matcher/NOTICE.md",
     "vendor/licenses/matcher/Unicode-3.0.txt",
     "vendor/licenses/matcher/nucleo-MPL-2.0.txt",

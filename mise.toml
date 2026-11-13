@@ -36,6 +36,7 @@ depends = ["test:harness", "build:release"]
 run = [
   "python3 scripts/compat.py --jj --bin zig-out/bin/tms --oracle zig-out/bin/tms-oracle",
   "python3 src/cli/error_check.py --bin zig-out/bin/tms",
+  "python3 src/app/review_check.py --binary zig-out/bin/tms",
 ]
 
 [tasks."test:terminal"]

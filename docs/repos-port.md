@@ -28,7 +28,15 @@ Returned references retain the resolved metadata path, including for nested modu
 
 Git read commands run inside existing metadata directories with an explicit `--work-tree` argument. A missing configured workdir cannot prevent metadata reads. The argument controls the subprocess context, not the returned workdir.
 
-`cloneRepo` creates the target directory, inherits output, waits, and ignores a nonzero Git exit. This preserves the captured clone-failure defect. Spawn and wait failures remain errors. `initRepo` uses quiet Git initialization and checks its exit.
+`cloneRepo` creates the target directory, inherits output, waits, and ignores a nonzero Git exit. This preserves the captured clone-failure defect. Spawn and wait failures remain errors.
+
+`initRepo` refuses existing `.git` entries and uses quiet Git initialization
+with SHA-1 and no ambient templates. Its child environment removes layout
+redirects (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`, and
+`GIT_OBJECT_DIRECTORY`). Native writes install the reference's fixed gix
+templates; their provenance and MIT notice live in `src/repos/template`.
+The configured initial branch is retained, with the reference's `main`
+fallback. Git exit status is checked.
 
 ## jj
 

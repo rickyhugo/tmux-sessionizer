@@ -134,7 +134,7 @@ pub fn resolve(io: Io, a: A, ref: RepoRef) anyerror!Resolved;
 pub fn worktrees(io: Io, a: A, ref: RepoRef, set: WorkspaceSet) anyerror![]const Worktree;
 pub fn submodules(io: Io, a: A, ref: RepoRef, recursive: bool) anyerror![]const Submodule;
 pub fn cloneRepo(io: Io, a: A, remote: []const u8, target: []const u8) anyerror!void;
-pub fn initRepo(io: Io, a: A, target: []const u8) anyerror!void;
+pub fn initRepo(io: Io, a: A, target: []const u8, env: *const Env) anyerror!void;
 ```
 
 `Search` carries validated roots, optional literal substring exclusions, and ordered providers. `excluded = null` skips exclusion-related path validation. A present list, including an empty list, requires every queued path to be UTF-8. Callers preserve configuration presence instead of replacing null with an empty list.
