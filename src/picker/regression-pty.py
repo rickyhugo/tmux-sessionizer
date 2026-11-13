@@ -188,6 +188,18 @@ def invalid_utf8(p):
     cancellation(p, b"\x03")
 
 
+def ignored_key_events(p):
+    p.send(b"\x1b[120;5:2u\x1b[120;5:3u\x1b[9;2:3u\x1b[57414;1:2uz")
+    assert b"> z" in ANSI.sub(b"", p.frame()), "non-press events changed the query"
+    cancellation(p, b"\x03")
+
+
+def fragmented_console_key(p):
+    p.send(b"\x1b[[")
+    assert not select.select([p.master], [], [], 0.1)[0], "console prefix redrew"
+    cancellation(p, b"A")
+
+
 def saturated(p):
     p.resize(65535)
     assert select.select([p.master], [], [], 2)[0], "wide frame did not start"
@@ -305,6 +317,13 @@ def main():
         tests = [
             ("fragmented-invalid-utf8", invalid_utf8),
             ("buffered-double-escape", lambda p: cancellation(p, b"\x1b\x1b")),
+            ("csi-u-press-binding", lambda p: cancellation(p, b"\x1b[120;5:1u")),
+            ("csi-u-shift-tab-binding", lambda p: cancellation(p, b"\x1b[9;2u")),
+            ("csi-u-keypad-enter-binding", lambda p: cancellation(p, b"\x1b[57414u")),
+            ("linux-console-f1-binding", lambda p: cancellation(p, b"\x1b[[A")),
+            ("fragmented-linux-console-f1", fragmented_console_key),
+            ("legacy-f1-binding", lambda p: cancellation(p, b"\x1bOP")),
+            ("ignored-key-events", ignored_key_events),
             ("saturated-output-signal", saturated),
             ("partial-output", partial_output),
             ("arabic-layout", lambda p: layout(p, "لاx")),

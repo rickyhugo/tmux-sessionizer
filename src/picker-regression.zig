@@ -14,6 +14,10 @@ pub fn main(init: std.process.Init) !void {
         .{ .key = .{ .code = .left }, .action = .cursor_left },
         .{ .key = .{ .code = .right }, .action = .cursor_right },
         .{ .key = .{ .code = .backspace }, .action = .backspace },
+        .{ .key = .{ .code = .{ .char = 'x' }, .modifiers = .{ .ctrl = true } }, .action = .cancel },
+        .{ .key = .{ .code = .back_tab, .modifiers = .{ .shift = true } }, .action = .cancel },
+        .{ .key = .{ .code = .enter }, .action = .cancel },
+        .{ .key = .{ .code = .{ .function = 1 } }, .action = .cancel },
     };
     const items = [_]picker.Item{.{ .id = 77, .label = "alpha" }};
     _ = try picker.choose(init.io, init.gpa, init.gpa, &items, .{

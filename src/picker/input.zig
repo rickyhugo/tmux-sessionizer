@@ -36,6 +36,16 @@ pub const Decoder = struct {
                     return .{ .code = .esc };
                 }
                 if (self.bytes[1] == '[' or self.bytes[1] == 'O') {
+                    if (self.bytes[1] == '[' and self.len >= 3 and self.bytes[2] == '[') {
+                        if (self.len == 3) return null;
+                        const final = self.bytes[3];
+                        // Linux console F1-F5 use ESC [[ A through ESC [[ E.
+                        // Preserve a following control key if the sequence is interrupted.
+                        self.consume(if (final < 0x20) 3 else 4);
+                        if (final >= 'A' and final <= 'E')
+                            return .{ .code = .{ .function = final - 'A' + 1 } };
+                        continue;
+                    }
                     var end: usize = 2;
                     while (end < self.len and !(self.bytes[end] >= 0x40 and self.bytes[end] <= 0x7e)) : (end += 1) {
                         if (self.bytes[end] < 0x20 or self.bytes[end] > 0x3f) {
@@ -115,7 +125,16 @@ fn sequence(bytes: []const u8) ?config.Key {
     var tokens = std.mem.splitScalar(u8, bytes[1 .. bytes.len - 1], ';');
     while (tokens.next()) |token| {
         if (count == params.len) return null;
-        params[count] = if (token.len == 0) 0 else std.fmt.parseInt(u32, token, 10) catch return null;
+        var fields = std.mem.splitScalar(u8, token, ':');
+        const number = fields.next().?;
+        params[count] = if (number.len == 0) 0 else std.fmt.parseInt(u32, number, 10) catch return null;
+        if (count == 1) {
+            if (fields.next()) |kind_text| {
+                const kind = std.fmt.parseInt(u8, kind_text, 10) catch 1;
+                // The Rust picker handles Press only; Repeat and Release are not edits.
+                if (kind == 2 or kind == 3) return null;
+            }
+        } else if (fields.next() != null) return null;
         count += 1;
     }
     var key: config.Key = .{ .code = switch (final) {
@@ -158,9 +177,9 @@ fn sequence(bytes: []const u8) ?config.Key {
     if (final == 'Z') key.modifiers.shift = true;
     if (final == 'u' or (final == '~' and params[0] == 27)) {
         switch (key.code.char) {
-            13 => key.code = .enter,
+            13, 57414 => key.code = .enter,
             27 => key.code = .esc,
-            9 => key.code = .tab,
+            9 => key.code = if (key.modifiers.shift) .back_tab else .tab,
             127 => key.code = .backspace,
             else => {},
         }
@@ -228,4 +247,91 @@ test "buffered double escape is plain Escape" {
     decoder.feed("\x1b\x1b");
     const key = decoder.next(false).?;
     try std.testing.expect(key.code == .esc and !key.modifiers.alt);
+}
+
+test "CSI-u press metadata preserves bindings and ignores repeat and release events" {
+    const bytes = "\x1b[120;5:1u";
+    for (1..bytes.len) |split| {
+        var decoder: Decoder = .{};
+        decoder.feed(bytes[0..split]);
+        try std.testing.expect(decoder.next(false) == null);
+        decoder.feed(bytes[split..]);
+        const key = decoder.next(false) orelse return error.PressLost;
+        try std.testing.expect(key.code == .char and key.code.char == 'x' and key.modifiers.ctrl);
+        decoder.feed("\x1b[120;5:2u\x1b[120;5:3uz");
+        try std.testing.expectEqual(@as(u21, 'z'), decoder.next(false).?.code.char);
+        try std.testing.expect(!decoder.pending());
+    }
+}
+
+test "CSI-u shifted Tab and keypad Enter retain semantic key codes" {
+    const cases = [_]struct { bytes: []const u8, key: config.Key }{
+        .{ .bytes = "\x1b[9;2u", .key = .{ .code = .back_tab, .modifiers = .{ .shift = true } } },
+        .{ .bytes = "\x1b[57414u", .key = .{ .code = .enter } },
+    };
+    for (cases) |case| {
+        for (1..case.bytes.len) |split| {
+            var decoder: Decoder = .{};
+            decoder.feed(case.bytes[0..split]);
+            try std.testing.expect(decoder.next(false) == null);
+            decoder.feed(case.bytes[split..]);
+            try std.testing.expectEqualDeep(case.key, decoder.next(false) orelse return error.KeyLost);
+            try std.testing.expect(!decoder.pending());
+        }
+    }
+}
+
+test "Linux console function keys survive fragmentation without inserting escape tails" {
+    for ('A'..'F', 1..) |final, function| {
+        const bytes = [_]u8{ 0x1b, '[', '[', @intCast(final) };
+        for (1..bytes.len) |split| {
+            var decoder: Decoder = .{};
+            decoder.feed(bytes[0..split]);
+            try std.testing.expect(decoder.next(false) == null);
+            decoder.feed(bytes[split..]);
+            const key = decoder.next(false) orelse return error.FunctionKeyLost;
+            try std.testing.expect(key.code == .function);
+            try std.testing.expectEqual(@as(u8, @intCast(function)), key.code.function);
+            try std.testing.expect(!decoder.pending());
+        }
+    }
+    var decoder: Decoder = .{};
+    decoder.feed("\x1b[[Zx");
+    try std.testing.expectEqual(@as(u21, 'x'), decoder.next(false).?.code.char);
+    decoder.feed("\x1b[[\x03");
+    const cancel = decoder.next(false) orelse return error.CancellationLost;
+    try std.testing.expect(cancel.code == .char and cancel.code.char == 'c' and cancel.modifiers.ctrl);
+    try std.testing.expect(!decoder.pending());
+}
+
+test "CSI event kinds follow the Rust press-only policy without leaking tails" {
+    const ignored = [_][]const u8{
+        "\x1b[120;5:2u",
+        "\x1b[120;5:3u",
+        "\x1b[9;2:2u",
+        "\x1b[57414;1:3u",
+        "\x1b[1;1:2D",
+        "\x1b[1;1:3D",
+        "\x1b[3;1:2~",
+        "\x1b[3;1:3~",
+    };
+    for (ignored) |bytes| {
+        for (1..bytes.len) |split| {
+            var decoder: Decoder = .{};
+            decoder.feed(bytes[0..split]);
+            try std.testing.expect(decoder.next(false) == null);
+            decoder.feed(bytes[split..]);
+            decoder.feed("z");
+            const key = decoder.next(false) orelse return error.FollowingKeyLost;
+            try std.testing.expect(key.code == .char and key.code.char == 'z');
+            try std.testing.expect(!decoder.pending());
+        }
+    }
+    // Crossterm defaults an absent, invalid or unknown event kind to Press.
+    for ([_][]const u8{ "\x1b[120;5u", "\x1b[120;5:u", "\x1b[120;5:4u" }) |bytes| {
+        var decoder: Decoder = .{};
+        decoder.feed(bytes);
+        const key = decoder.next(false) orelse return error.PressLost;
+        try std.testing.expect(key.code == .char and key.code.char == 'x' and key.modifiers.ctrl);
+    }
 }

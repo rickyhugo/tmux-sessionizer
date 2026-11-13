@@ -70,6 +70,40 @@ suspension loop. Three consecutive stop/resume cycles must restore attributes,
 resume input, and permit cancellation. The coordinator reproduced the quadratic
 unit failure and verified all nine PTY checks after the changes.
 
+## Reviewed input regressions
+
+Review of `32c24bc66b14c396c92469fff3a12880aa5b7daf` found three input
+regressions against the retained Rust picker: explicit CSI-u press metadata was
+discarded, shifted Tab and keypad Enter lost their semantic key codes, and Linux
+console F1 inserted `A` instead of invoking its binding.
+
+Before changing the decoder, the new tests reproduced three unit failures and
+four PTY binding failures on that base. The legacy SS3 F1 control passed.
+The fixes preserve the locked crossterm 0.28.1 event-kind rules and the Rust
+picker's press-only policy. Explicit presses reach bindings. Repeat and release
+events are consumed without editing or invoking actions. Missing, invalid, or
+unknown event kinds retain the reference's Press default.
+
+Decoder tests cover every byte split for the repaired sequences, F1-F5 console
+codes, and non-press events. Unknown console sequences cannot insert their final
+byte; an interrupting control key remains available for cancellation.
+The fixes do not change matching, IO interfaces, or terminal ownership.
+
+On macOS arm64 with Zig 0.17.1, all 15 input/width tests, all 27 picker tests,
+and all 16 focused ReleaseFast PTY scenarios pass. These are native macOS checks,
+not Linux-console runtime verification. The console key bytes are exercised
+through controlling PTYs.
+
+```sh
+MISE_AUTO_INSTALL=false mise exec -- zig test --dep config \
+  -Mroot=src/picker/input.zig -Mconfig=src/config.zig
+MISE_AUTO_INSTALL=false mise exec -- zig test -lc \
+  --dep config --dep matcher --dep tmux -Mroot=src/picker.zig \
+  -Mconfig=src/config.zig -Mmatcher=src/matcher.zig \
+  --dep process -Mtmux=src/tmux.zig -Mprocess=src/process.zig
+MISE_AUTO_INSTALL=false mise exec -- python3 src/picker/regression-pty.py
+```
+
 ## Compatibility and limits
 
 The approved improvements use display-cell cursor placement, safe tiny-size arithmetic, signal cleanup, and immediate rendering after matching completes.
