@@ -199,7 +199,13 @@ test "real git bare worktrees support relative metadata paths prunable records a
     const pointer = try f.tmp.dir.readFileAlloc(io, "bare/worktrees/checkout/gitdir", f.a(), .unlimited);
     try std.testing.expect(std.mem.startsWith(u8, pointer, ".."));
     const linked = try repos.resolve(io, f.a(), .{ .path = one, .provider = .git });
-    try std.testing.expect(linked.linked and !linked.bare);
+    try std.testing.expect(linked.linked and linked.bare);
+    try std.testing.expectEqualStrings(one, linked.cwd);
+    try f.git(bare, &.{ "config", "extensions.worktreeConfig", "true" });
+    try f.git(one, &.{ "config", "--worktree", "core.bare", "false" });
+    const private_override = try repos.resolve(io, f.a(), .{ .path = one, .provider = .git });
+    try std.testing.expect(private_override.linked and private_override.bare);
+    try std.testing.expectEqualStrings(one, private_override.cwd);
     const trees = try repos.worktrees(io, f.a(), ref, .registered);
     try std.testing.expectEqual(@as(usize, 2), trees.len);
     try std.testing.expectEqualStrings("checkout", trees[0].name);
@@ -371,4 +377,168 @@ test "real jj bare classification reads recorded empty root child without snapsh
     try f.jj(main, &.{"new"});
     try std.testing.expect(!(try repos.resolve(io, f.a(), ref)).bare);
     try std.testing.expectEqual(@as(usize, 0), (try repos.submodules(io, f.a(), ref, true)).len);
+}
+
+test "real git linked checkout ignores common worktree settings but accepts private config origins" {
+    var f = try Fixture.init();
+    defer f.deinit();
+    const main = try f.repo("main");
+    try f.git(main.path, &.{ "config", "core.worktree", ".." });
+    const linked = try f.path("linked");
+    try f.git(main.path, &.{ "worktree", "add", "-b", "topic", linked });
+    const ref: repos.RepoRef = .{ .path = linked, .provider = .git };
+    try std.testing.expectEqualStrings(linked, (try repos.resolve(io, f.a(), ref)).cwd);
+    try f.git(main.path, &.{ "config", "extensions.worktreeConfig", "true" });
+    try f.git(linked, &.{ "config", "--worktree", "core.worktree", "../../../private-checkout" });
+    try std.testing.expectEqualStrings(try f.path("main/private-checkout"), (try repos.resolve(io, f.a(), ref)).cwd);
+    try f.tmp.dir.writeFile(io, .{ .sub_path = "main/.git/worktrees/linked/local-config", .data = "[core]\nworktree = ../../../../included-checkout\n" });
+    try f.tmp.dir.writeFile(io, .{ .sub_path = "main/.git/worktrees/linked/config.worktree", .data = "[core]\nworktree = ../../../private-checkout\n[include]\npath = local-config\n" });
+    try std.testing.expectEqualStrings(try f.path("included-checkout"), (try repos.resolve(io, f.a(), ref)).cwd);
+    try f.tmp.dir.writeFile(io, .{ .sub_path = "outside-config", .data = "[core]\nworktree = /must-not-be-used\n" });
+    try f.tmp.dir.writeFile(io, .{ .sub_path = "main/.git/worktrees/linked/config.worktree", .data = "[core]\nworktree = ../../../private-checkout\n[include]\npath = ../../../../outside-config\n" });
+    try std.testing.expectEqualStrings(try f.path("main/private-checkout"), (try repos.resolve(io, f.a(), ref)).cwd);
+}
+
+test "real jj bare classification ignores revset aliases and does not snapshot" {
+    var f = try Fixture.init();
+    defer f.deinit();
+    const main = try f.path("main");
+    try f.jj(f.root, &.{ "git", "init", "--no-colocate", main });
+    try f.tmp.dir.writeFile(io, .{
+        .sub_path = "jj-config.toml",
+        .data =
+        \\[revset-aliases]
+        \\"empty()" = "none()"
+        \\"root()" = "none()"
+        \\"children(x)" = "none()"
+        ,
+    });
+    var env = try std.testing.environ.createMap(f.a());
+    try env.put("JJ_CONFIG", try f.path("jj-config.toml"));
+    try env.put("XDG_CONFIG_HOME", try f.path("config"));
+    var threaded = std.Io.Threaded.init(std.testing.allocator, .{
+        .environ = .{ .block = try env.createPosixBlock(f.a(), .{}) },
+    });
+    defer threaded.deinit();
+    const isolated_io = threaded.io();
+    const aliased = try process.capture(isolated_io, f.a(), .{
+        .argv = &.{ "jj", "--ignore-working-copy", "--no-pager", "log", "--no-graph", "-r", "@ & empty() & children(root())", "-T", "\"bare\"" },
+        .cwd = main,
+        .stdin = .ignore,
+    });
+    try std.testing.expect(aliased.term == .exited and aliased.term.exited == 0);
+    try std.testing.expectEqualStrings("", aliased.stdout);
+    const ref: repos.RepoRef = .{ .path = main, .provider = .jujutsu };
+    try f.tmp.dir.writeFile(io, .{ .sub_path = "main/unrecorded", .data = "unrecorded" });
+    try std.testing.expect((try repos.resolve(isolated_io, f.a(), ref)).bare);
+    try f.jj(main, &.{"status"});
+    try std.testing.expect(!(try repos.resolve(isolated_io, f.a(), ref)).bare);
+    try f.jj(main, &.{"new"});
+    try std.testing.expect(!(try repos.resolve(isolated_io, f.a(), ref)).bare);
+}
+
+test "real jj active workspaces include leading hyphen names" {
+    var f = try Fixture.init();
+    defer f.deinit();
+    const main = try f.path("main");
+    const linked = try f.path("linked");
+    try f.jj(f.root, &.{ "git", "init", "--no-colocate", main });
+    try f.jj(main, &.{ "workspace", "add", "--name=-topic", linked });
+    const other = try repos.worktrees(io, f.a(), .{ .path = main, .provider = .jujutsu }, .active_other);
+    try std.testing.expectEqual(@as(usize, 1), other.len);
+    try std.testing.expectEqualStrings("-topic", other[0].name);
+    try std.testing.expectEqualStrings(linked, other[0].path);
+}
+
+test "real git deleted submodule checkout retains its configured workdir and nested modules" {
+    var f = try Fixture.init();
+    defer f.deinit();
+    const leaf = try f.repo("leaf");
+    const source = try f.repo("source");
+    try f.git(source.path, &.{ "submodule", "add", "--name", "registered-leaf", leaf.path, "nested/leaf" });
+    try f.git(source.path, &.{ "commit", "--quiet", "-am", "leaf" });
+    const parent = try f.repo("parent");
+    try f.git(parent.path, &.{ "submodule", "add", "--name", "registered-child", source.path, "vendor/child" });
+    try f.git(parent.path, &.{ "commit", "--quiet", "-am", "child" });
+    try f.git(parent.path, &.{ "submodule", "update", "--init", "--recursive" });
+    try f.tmp.dir.deleteTree(io, "parent/vendor/child");
+    const direct = try repos.submodules(io, f.a(), parent, false);
+    try std.testing.expectEqual(@as(usize, 1), direct.len);
+    try std.testing.expectEqualStrings(try f.path("parent/vendor/child"), direct[0].ref.path);
+    try std.testing.expectEqualStrings(direct[0].ref.path, (try repos.resolve(io, f.a(), direct[0].ref)).cwd);
+    const recursive = try repos.submodules(io, f.a(), parent, true);
+    try std.testing.expectEqual(@as(usize, 2), recursive.len);
+    try std.testing.expectEqualStrings("child>leaf", recursive[0].name);
+    try std.testing.expectEqualStrings(try f.path("parent/vendor/child/nested/leaf"), recursive[0].ref.path);
+    try std.testing.expectEqualStrings(recursive[0].ref.path, (try repos.resolve(io, f.a(), recursive[0].ref)).cwd);
+}
+
+test "real git symlinked modules file uses index then HEAD instead of its target" {
+    var f = try Fixture.init();
+    defer f.deinit();
+    const source = try f.repo("source");
+    const parent = try f.repo("parent");
+    try f.git(parent.path, &.{ "submodule", "add", "--name", "registered-child", source.path, "vendor/child" });
+    try f.git(parent.path, &.{ "commit", "--quiet", "-am", "child" });
+    try f.tmp.dir.writeFile(io, .{ .sub_path = "foreign-modules", .data = "[submodule \"foreign\"]\npath = unrelated\nurl = nowhere\n" });
+    try f.tmp.dir.deleteFile(io, "parent/.gitmodules");
+    try f.tmp.dir.symLink(io, "../foreign-modules", "parent/.gitmodules", .{});
+    const indexed = try repos.submodules(io, f.a(), parent, false);
+    try std.testing.expectEqual(@as(usize, 1), indexed.len);
+    try std.testing.expectEqualStrings("child", indexed[0].name);
+    try f.git(parent.path, &.{ "rm", "--cached", ".gitmodules" });
+    try std.testing.expectEqual(@as(usize, 1), (try repos.submodules(io, f.a(), parent, false)).len);
+}
+
+test "discovery requires UTF8 at exclusions and repository names not ordinary queued paths" {
+    var f = try Fixture.init();
+    defer f.deinit();
+    try f.tmp.dir.createDirPath(io, "valid/.git");
+    const invalid = try f.path("\xff");
+    const search: repos.Search = .{
+        .roots = &.{ .{ .path = invalid, .depth = 1 }, .{ .path = try f.path("valid"), .depth = 1 } },
+        .excluded = &.{},
+        .providers = &.{.git},
+    };
+    const found = try repos.discover(io, f.a(), search);
+    try std.testing.expectEqual(@as(usize, 1), found.len);
+    var excluded = search;
+    excluded.excluded = &.{"unmatched"};
+    try std.testing.expectError(error.NonUtf8Path, repos.discover(io, f.a(), excluded));
+}
+
+test "discovery ignores a non UTF8 ordinary filename" {
+    var f = try Fixture.init();
+    defer f.deinit();
+    try f.tmp.dir.createDirPath(io, "valid/.git");
+    f.tmp.dir.writeFile(io, .{ .sub_path = "\xff", .data = "ordinary file" }) catch |err| {
+        if (@import("builtin").os.tag == .macos and err == error.BadPathName) return error.SkipZigTest;
+        return err;
+    };
+    const found = try repos.discover(io, f.a(), .{
+        .roots = &.{.{ .path = f.root, .depth = 2 }},
+        .excluded = &.{},
+        .providers = &.{.git},
+    });
+    try std.testing.expectEqual(@as(usize, 1), found.len);
+    try std.testing.expectError(error.NonUtf8Path, repos.discover(io, f.a(), .{
+        .roots = &.{.{ .path = f.root, .depth = 2 }},
+        .excluded = &.{"unmatched"},
+        .providers = &.{.git},
+    }));
+    try f.tmp.dir.deleteFile(io, "\xff");
+    try f.tmp.dir.createDirPath(io, "\xff/nested/.git");
+    const nested = try repos.discover(io, f.a(), .{
+        .roots = &.{.{ .path = try f.path("\xff"), .depth = 1 }},
+        .excluded = &.{},
+        .providers = &.{.git},
+    });
+    try std.testing.expectEqual(@as(usize, 1), nested.len);
+    try std.testing.expectEqualStrings(try f.path("\xff/nested"), nested[0].path);
+    try f.tmp.dir.createDirPath(io, "\xff/.git");
+    try std.testing.expectError(error.NonUtf8Path, repos.discover(io, f.a(), .{
+        .roots = &.{.{ .path = try f.path("\xff"), .depth = 1 }},
+        .excluded = &.{},
+        .providers = &.{.git},
+    }));
 }

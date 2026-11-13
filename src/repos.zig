@@ -30,7 +30,7 @@ pub fn discover(io: Io, a: A, search: Search) anyerror![]const RepoRef {
     var next: usize = 0;
     while (next < queue.items.len) : (next += 1) {
         const current = queue.items[next];
-        if (!std.unicode.utf8ValidateSlice(current.path)) return error.NonUtf8Path;
+        if (search.excluded.len != 0 and !std.unicode.utf8ValidateSlice(current.path)) return error.NonUtf8Path;
         var excluded = false;
         for (search.excluded) |pattern| {
             if (std.mem.indexOf(u8, current.path, pattern) != null) {
@@ -40,6 +40,7 @@ pub fn discover(io: Io, a: A, search: Search) anyerror![]const RepoRef {
         }
         if (excluded) continue;
         if (try detect(io, current.path, search.providers)) |ref| {
+            if (!std.unicode.utf8ValidateSlice(std.fs.path.basename(current.path))) return error.NonUtf8Path;
             try found.append(a, ref);
             continue;
         }
@@ -47,6 +48,7 @@ pub fn discover(io: Io, a: A, search: Search) anyerror![]const RepoRef {
         var dir = Io.Dir.cwd().openDir(io, current.path, .{ .iterate = true }) catch |err| switch (err) {
             error.FileNotFound, error.NotDir, error.SymLinkLoop => continue,
             error.AccessDenied => {
+                if (!std.unicode.utf8ValidateSlice(current.path)) return error.NonUtf8Path;
                 var buffer: [1024]u8 = undefined;
                 var writer = Io.File.stderr().writer(io, &buffer);
                 try writer.interface.print("Warning: insufficient permissions to read '{s}'. Skipping directory...\n", .{current.path});
@@ -94,20 +96,40 @@ pub fn resolve(io: Io, a: A, ref: RepoRef) anyerror!Resolved {
     switch (ref.provider) {
         .git => {
             const metadata = try gitMetadata(io, a, ref.path);
-            const output = try checked(io, a, &.{
-                "git", "--git-dir", metadata, "rev-parse", "--is-bare-repository",
-            }, ref.path);
-            const bare = try parsers.boolean(line(output));
+            const common = try gitCommonDirectory(io, a, metadata);
+            const common_config = try std.fs.path.join(a, &.{ common, "config" });
+            const configured_bare = try process.capture(io, a, .{
+                .argv = &.{ "git", "--git-dir", metadata, "--work-tree", metadata, "config", "--file", common_config, "--type=bool", "--get", "core.bare" },
+                .cwd = metadata,
+                .stdin = .ignore,
+            });
             const dotgit = try std.fs.path.join(a, &.{ ref.path, ".git" });
-            var cwd = if (bare) metadata else ref.path;
+            const bare = if (success(configured_bare.term))
+                try parsers.boolean(line(configured_bare.stdout))
+            else
+                !exists(io, dotgit);
+            const linked_metadata = !std.mem.eql(u8, common, metadata);
+            var cwd = if (bare and !linked_metadata) metadata else ref.path;
             if (!bare) {
                 const configured = try process.capture(io, a, .{
-                    .argv = &.{ "git", "--git-dir", metadata, "config", "--path", "--get", "core.worktree" },
-                    .cwd = ref.path,
+                    .argv = &.{ "git", "--git-dir", metadata, "--work-tree", metadata, "config", "--null", "--show-origin", "--path", "--get-all", "core.worktree" },
+                    .cwd = metadata,
                     .stdin = .ignore,
                 });
+                var override: ?[]const u8 = null;
                 if (success(configured.term)) {
-                    cwd = try std.fs.path.resolve(a, &.{ metadata, line(configured.stdout) });
+                    var records = std.mem.splitScalar(u8, configured.stdout, 0);
+                    while (records.next()) |origin| {
+                        const value = records.next() orelse break;
+                        if (!std.mem.startsWith(u8, origin, "file:")) continue;
+                        const source = try std.fs.path.resolve(a, &.{ metadata, origin["file:".len..] });
+                        if (!std.mem.startsWith(u8, source, metadata) or
+                            source.len <= metadata.len or source[metadata.len] != std.fs.path.sep) continue;
+                        override = value;
+                    }
+                }
+                if (override) |value| {
+                    cwd = try std.fs.path.resolve(a, &.{ metadata, value });
                 } else if (!exists(io, dotgit) and std.mem.eql(u8, std.fs.path.basename(metadata), ".git")) {
                     cwd = std.fs.path.dirname(metadata) orelse return error.GitError;
                 }
@@ -116,14 +138,14 @@ pub fn resolve(io: Io, a: A, ref: RepoRef) anyerror!Resolved {
                 .cwd = cwd,
                 .metadata = metadata,
                 .bare = bare,
-                .linked = !bare and isFile(io, dotgit),
+                .linked = (!bare or linked_metadata) and isFile(io, dotgit),
             };
         },
         .jujutsu => {
             const marker = try std.fs.path.join(a, &.{ ref.path, ".jj/repo" });
             if (!exists(io, marker)) return error.GitError;
             const root = line(try jj(io, a, ref.path, &.{"root"}));
-            _ = try jj(io, a, ref.path, &.{ "log", "--no-graph", "--limit", "0", "-r", "root()", "-T", "\"\"" });
+            _ = try jj(io, a, ref.path, &.{ "log", "--no-graph", "--limit", "0", "-r", "@", "-T", "\"\"" });
             const repo_path = try std.fs.path.join(a, &.{ root, ".jj/repo" });
             const linked = isFile(io, repo_path);
             const metadata = if (linked) blk: {
@@ -132,12 +154,12 @@ pub fn resolve(io: Io, a: A, ref: RepoRef) anyerror!Resolved {
                 break :blk try std.fs.path.resolve(a, &.{ relative_to, line(pointer) });
             } else repo_path;
             const bare = jj(io, a, ref.path, &.{
-                "log", "--no-graph", "-r", "@ & empty() & children(root())", "-T", "\"bare\"",
+                "log", "--no-graph", "-r", "@", "-T", "self.empty() ++ \"\\0\" ++ self.parents().map(|parent| parent.root()).join(\"\\0\")",
             }) catch "";
             return .{
                 .cwd = root,
                 .metadata = metadata,
-                .bare = std.mem.eql(u8, bare, "bare"),
+                .bare = std.mem.eql(u8, bare, "true\x00true"),
                 .linked = linked,
             };
         },
@@ -155,9 +177,7 @@ pub fn worktrees(io: Io, a: A, ref: RepoRef, set: WorkspaceSet) anyerror![]const
     var result: std.ArrayList(Worktree) = .empty;
     switch (ref.provider) {
         .git => {
-            const common = line(try checked(io, a, &.{
-                "git", "--git-dir", repo.metadata, "rev-parse", "--path-format=absolute", "--git-common-dir",
-            }, repo.cwd));
+            const common = try gitCommonDirectory(io, a, repo.metadata);
             const admin = try std.fs.path.join(a, &.{ common, "worktrees" });
             var dir = Io.Dir.cwd().openDir(io, admin, .{ .iterate = true }) catch |err| switch (err) {
                 error.FileNotFound => return &.{},
@@ -188,7 +208,8 @@ pub fn worktrees(io: Io, a: A, ref: RepoRef, set: WorkspaceSet) anyerror![]const
             var split = std.mem.splitScalar(u8, names, 0);
             while (split.next()) |name| {
                 if (name.len == 0 or std.mem.eql(u8, name, current)) continue;
-                const path = line(jj(io, a, ref.path, &.{ "workspace", "root", "--name", name }) catch continue);
+                const option = try std.fmt.allocPrint(a, "--name={s}", .{name});
+                const path = line(jj(io, a, ref.path, &.{ "workspace", "root", option }) catch continue);
                 const other: RepoRef = .{ .path = path, .provider = .jujutsu };
                 const opened = resolve(io, a, other) catch continue;
                 const actual_name = jjWorkspaceName(io, a, opened.cwd) catch continue;
@@ -227,10 +248,10 @@ fn appendSubmodules(io: Io, a: A, repo: Resolved, prefix: []const u8, recursive:
         const sub: RepoRef = .{ .path = path, .provider = .git };
         const opened = resolve(io, a, sub) catch continue;
         if (opened.bare) continue;
-        const basename = std.fs.path.basename(path);
+        const basename = std.fs.path.basename(opened.cwd);
         const name = if (prefix.len == 0) basename else try std.fmt.allocPrint(a, "{s}>{s}", .{ prefix, basename });
         if (recursive) appendSubmodules(io, a, opened, name, true, result) catch {};
-        try result.append(a, .{ .name = name, .ref = sub });
+        try result.append(a, .{ .name = name, .ref = .{ .path = opened.cwd, .provider = .git } });
     }
 }
 
@@ -250,12 +271,13 @@ fn gitMetadata(io: Io, a: A, path: []const u8) ![]const u8 {
 fn moduleConfig(io: Io, a: A, repo: Resolved) ![]const parsers.Module {
     const file = try std.fs.path.join(a, &.{ repo.cwd, ".gitmodules" });
     var source = [2][]const u8{ "--file", file };
-    if (repo.bare or !exists(io, file)) {
+    const stat = Io.Dir.cwd().statFile(io, file, .{ .follow_symlinks = false }) catch null;
+    if (repo.bare or stat == null or stat.?.kind == .sym_link) {
         var blob: ?[]const u8 = null;
         for ([_][]const u8{ ":.gitmodules", "HEAD:.gitmodules" }) |candidate| {
             const probe = try process.capture(io, a, .{
-                .argv = &.{ "git", "--git-dir", repo.metadata, "rev-parse", "--verify", candidate },
-                .cwd = repo.cwd,
+                .argv = &.{ "git", "--git-dir", repo.metadata, "--work-tree", repo.metadata, "rev-parse", "--verify", candidate },
+                .cwd = repo.metadata,
                 .stdin = .ignore,
             });
             if (success(probe.term)) {
@@ -267,10 +289,10 @@ fn moduleConfig(io: Io, a: A, repo: Resolved) ![]const parsers.Module {
     }
     const output = try process.capture(io, a, .{
         .argv = &.{
-            "git",          "--git-dir",               repo.metadata, "config", "--null", source[0], source[1],
+            "git",          "--git-dir",               repo.metadata, "--work-tree", repo.metadata, "config", "--null", source[0], source[1],
             "--get-regexp", "^submodule\\..*\\.path$",
         },
-        .cwd = repo.cwd,
+        .cwd = repo.metadata,
         .stdin = .ignore,
     });
     if (!success(output.term)) {
@@ -286,18 +308,33 @@ fn submoduleMetadata(io: Io, a: A, path: []const u8) ![]const u8 {
     while (parent) |candidate| : (parent = std.fs.path.dirname(candidate)) {
         if ((try detect(io, candidate, &.{.git})) == null) continue;
         const repo = try resolve(io, a, .{ .path = candidate, .provider = .git });
-        const modules = try moduleConfig(io, a, repo);
-        for (modules) |module| {
-            const checkout = try std.fs.path.resolve(a, &.{ repo.cwd, module.path });
-            if (!std.mem.eql(u8, checkout, absolute)) continue;
-            const common = line(try checked(io, a, &.{
-                "git", "--git-dir", repo.metadata, "rev-parse", "--path-format=absolute", "--git-common-dir",
-            }, repo.cwd));
-            return std.fs.path.join(a, &.{ common, "modules", module.name });
-        }
-        return error.GitError;
+        return (try registeredSubmoduleMetadata(io, a, repo, absolute)) orelse error.GitError;
     }
     return error.GitError;
+}
+
+fn registeredSubmoduleMetadata(io: Io, a: A, repo: Resolved, path: []const u8) anyerror!?[]const u8 {
+    const modules = try moduleConfig(io, a, repo);
+    for (modules) |module| {
+        const checkout = try std.fs.path.resolve(a, &.{ repo.cwd, module.path });
+        const exact = std.mem.eql(u8, checkout, path);
+        const nested = std.mem.startsWith(u8, path, checkout) and
+            path.len > checkout.len and path[checkout.len] == std.fs.path.sep;
+        if (!exact and !nested) continue;
+        const common = try gitCommonDirectory(io, a, repo.metadata);
+        const metadata = try std.fs.path.join(a, &.{ common, "modules", module.name });
+        if (exact) return metadata;
+        const child = resolve(io, a, .{ .path = metadata, .provider = .git }) catch continue;
+        if (try registeredSubmoduleMetadata(io, a, child, path)) |found| return found;
+    }
+    return null;
+}
+
+fn gitCommonDirectory(io: Io, a: A, metadata: []const u8) ![]const u8 {
+    const common = line(try checked(io, a, &.{
+        "git", "--git-dir", metadata, "--work-tree", metadata, "rev-parse", "--path-format=absolute", "--git-common-dir",
+    }, metadata));
+    return Io.Dir.cwd().realPathFileAlloc(io, common, a);
 }
 
 fn jj(io: Io, a: A, cwd: []const u8, args: []const []const u8) ![]const u8 {
