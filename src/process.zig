@@ -133,29 +133,7 @@ fn moveAcrossDevices(io: Io, a: A, from: []const u8, to: []const u8) anyerror!vo
     }
     var context: @import("process/move.zig").CopyContext = .init(a);
     defer context.deinit();
-    const allocator = context.arena.allocator();
-    const staging = try std.fmt.allocPrintSentinel(allocator, "{s}/.tms-move-XXXXXX", .{
-        std.fs.path.dirname(to) orelse ".",
-    }, 0);
-    const native = @import("process/move.zig").native;
-    if (native.mkdtemp(staging) == null) return error.CreateStagingFailed;
-    defer dir.deleteTree(io, staging) catch {};
-    if (@import("builtin").os.tag == .macos) {
-        const acl = native.acl_init(0) orelse return error.CreateAclFailed;
-        defer _ = native.acl_free(acl);
-        if (native.acl_set_file(staging, native.ACL_TYPE_EXTENDED, acl) != 0) return error.SetAclFailed;
-    } else {
-        for ([_][:0]const u8{ "system.posix_acl_access", "system.posix_acl_default" }) |name| {
-            if (native.lremovexattr(staging, name) != 0) switch (std.c.errno(@as(c_int, -1))) {
-                .NODATA, .OPNOTSUPP => {},
-                else => return error.SetAclFailed,
-            };
-        }
-    }
-    if (native.chmod(staging, 0o700) != 0) return error.SetPermissionsFailed;
-    const item = try std.fs.path.join(allocator, &.{ staging, "item" });
-    try context.copy(io, from, item);
-    try dir.rename(item, dir, to, io);
+    try context.publish(io, from, to);
     try dir.deleteTree(io, from);
 }
 
@@ -173,4 +151,16 @@ test "cross-device fallback preserves native metadata and hardlinks" {
 
 test "cross-device fallback keeps failed copies private and retryable" {
     try @import("process/move_tests.zig").checkFailure(moveAcrossDevices);
+}
+
+test "cross-device fallback preserves inherited Darwin file and directory ACLs" {
+    try @import("process/move_tests.zig").checkInheritedAcls(moveAcrossDevices);
+}
+
+test "failed publication removes read-only staging directories without following links" {
+    try @import("process/move_tests.zig").checkPublishFailure(moveAcrossDevices);
+}
+
+test "native move preserves metadata and ACLs across a real device boundary" {
+    try @import("process/move_tests.zig").checkCrossDeviceMetadata(movePath);
 }

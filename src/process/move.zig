@@ -8,10 +8,16 @@ pub const native = struct {
     pub extern "c" fn mkfifo([*:0]const u8, c.mode_t) c_int;
     pub extern "c" fn copyfile([*:0]const u8, [*:0]const u8, ?*anyopaque, u32) c_int;
     pub extern "c" fn acl_init(c_int) ?*anyopaque;
-    pub extern "c" fn acl_set_file([*:0]const u8, c_int, *anyopaque) c_int;
     pub extern "c" fn acl_free(?*anyopaque) c_int;
     pub extern "c" fn acl_get_link_np([*:0]const u8, c_int) ?*anyopaque;
     pub extern "c" fn acl_set_link_np([*:0]const u8, c_int, *anyopaque) c_int;
+    pub extern "c" fn acl_get_entry(*anyopaque, c_int, *?*anyopaque) c_int;
+    pub extern "c" fn acl_create_entry(*?*anyopaque, *?*anyopaque) c_int;
+    pub extern "c" fn acl_copy_entry(*anyopaque, *anyopaque) c_int;
+    pub extern "c" fn acl_get_flagset_np(*anyopaque, *?*anyopaque) c_int;
+    pub extern "c" fn acl_get_flag_np(*anyopaque, c_int) c_int;
+    pub extern "c" fn acl_add_flag_np(*anyopaque, c_int) c_int;
+    pub extern "c" fn acl_delete_flag_np(*anyopaque, c_int) c_int;
     pub const ACL_TYPE_EXTENDED = 0x100;
     pub extern "c" fn llistxattr([*:0]const u8, ?[*]u8, usize) isize;
     pub extern "c" fn listxattr([*:0]const u8, ?[*]u8, usize, c_int) isize;
@@ -22,9 +28,90 @@ pub const native = struct {
     pub extern "c" fn setxattr([*:0]const u8, [*:0]const u8, [*]const u8, usize, u32, c_int) c_int;
     pub const COPYFILE_ALL: u32 = 0xf;
     pub const COPYFILE_METADATA: u32 = 0x7;
+    pub const COPYFILE_ACL: u32 = 1;
     pub const COPYFILE_EXCL: u32 = 1 << 17;
     pub const COPYFILE_NOFOLLOW: u32 = (1 << 18) | (1 << 19);
     pub const XATTR_NOFOLLOW: c_int = 1;
+};
+
+const Acl = struct {
+    value: ?*anyopaque = null,
+
+    const inherited = 1 << 4;
+    const file_inherit = 1 << 5;
+    const directory_inherit = 1 << 6;
+    const limit_inherit = 1 << 7;
+    const only_inherit = 1 << 8;
+    const no_inherit = 1 << 17;
+
+    fn read(path: [:0]const u8) !Acl {
+        const value = native.acl_get_link_np(path, native.ACL_TYPE_EXTENDED);
+        if (value == null and c.errno(@as(c_int, -1)) != .NOENT) return error.ReadAclFailed;
+        return .{ .value = value };
+    }
+
+    fn deinit(self: Acl) void {
+        if (darwin) {
+            if (self.value) |value| _ = native.acl_free(value);
+        }
+    }
+
+    fn blocksInheritance(self: Acl) !bool {
+        const value = self.value orelse return false;
+        var flags: ?*anyopaque = null;
+        if (native.acl_get_flagset_np(value, &flags) != 0) return error.ReadAclFailed;
+        return native.acl_get_flag_np(flags.?, no_inherit) == 1;
+    }
+
+    fn inherit(parent: Acl, directory: bool) !Acl {
+        var result: Acl = .{};
+        errdefer result.deinit();
+        const value = parent.value orelse return result;
+        var entry: ?*anyopaque = null;
+        var next: c_int = 0;
+        while (native.acl_get_entry(value, next, &entry) == 0) {
+            next = -1;
+            var flags: ?*anyopaque = null;
+            if (native.acl_get_flagset_np(entry.?, &flags) != 0) return error.ReadAclFailed;
+            if (native.acl_get_flag_np(flags.?, if (directory) directory_inherit else file_inherit) != 1)
+                continue;
+            const copied = try result.appendEntry(entry.?);
+            if (native.acl_get_flagset_np(copied, &flags) != 0) return error.ReadAclFailed;
+            if (native.acl_add_flag_np(flags.?, inherited) != 0 or
+                native.acl_delete_flag_np(flags.?, only_inherit) != 0)
+                return error.PreserveAclFailed;
+            if (!directory or native.acl_get_flag_np(flags.?, limit_inherit) == 1) {
+                for ([_]c_int{ file_inherit, directory_inherit, limit_inherit, only_inherit }) |flag| {
+                    if (native.acl_delete_flag_np(flags.?, flag) != 0) return error.PreserveAclFailed;
+                }
+            }
+        }
+        return result;
+    }
+
+    fn appendEntry(self: *Acl, entry: *anyopaque) !*anyopaque {
+        if (self.value == null) self.value = native.acl_init(0) orelse return error.CreateAclFailed;
+        var copied: ?*anyopaque = null;
+        if (native.acl_create_entry(&self.value, &copied) != 0 or native.acl_copy_entry(copied.?, entry) != 0)
+            return error.PreserveAclFailed;
+        return copied.?;
+    }
+
+    fn append(self: *Acl, other: Acl) !void {
+        const value = other.value orelse return;
+        var entry: ?*anyopaque = null;
+        var next: c_int = 0;
+        while (native.acl_get_entry(value, next, &entry) == 0) {
+            next = -1;
+            _ = try self.appendEntry(entry.?);
+        }
+    }
+
+    fn apply(self: Acl, path: [:0]const u8) !void {
+        const value = self.value orelse return;
+        if (native.acl_set_link_np(path, native.ACL_TYPE_EXTENDED, value) != 0)
+            return error.PreserveAclFailed;
+    }
 };
 
 pub const Metadata = struct {
@@ -95,7 +182,38 @@ pub const CopyContext = struct {
         self.arena.deinit();
     }
 
-    pub fn copy(self: *CopyContext, io: std.Io, from: []const u8, to: []const u8) anyerror!void {
+    pub fn publish(self: *CopyContext, io: std.Io, from: []const u8, to: []const u8) !void {
+        const staging = try std.fmt.allocPrintSentinel(self.arena.allocator(), "{s}/.tms-move-XXXXXX", .{
+            std.fs.path.dirname(to) orelse ".",
+        }, 0);
+        if (native.mkdtemp(staging) == null) return error.CreateStagingFailed;
+        const result = self.copyStaged(io, from, to, staging);
+        try makeStagingWritable(io, staging);
+        try std.Io.Dir.cwd().deleteTree(io, staging);
+        return result;
+    }
+
+    fn copyStaged(self: *CopyContext, io: std.Io, from: []const u8, to: []const u8, staging: [:0]const u8) !void {
+        if (darwin) {
+            try clearAcl(staging);
+        } else {
+            for ([_][:0]const u8{ "system.posix_acl_access", "system.posix_acl_default" }) |name| {
+                if (native.lremovexattr(staging, name) != 0) switch (c.errno(@as(c_int, -1))) {
+                    .NODATA, .OPNOTSUPP => {},
+                    else => return error.SetAclFailed,
+                };
+            }
+        }
+        if (native.chmod(staging, 0o700) != 0) return error.SetPermissionsFailed;
+        const item = try std.fs.path.join(self.arena.allocator(), &.{ staging, "item" });
+        const parent = try self.arena.allocator().dupeSentinel(u8, std.fs.path.dirname(to) orelse ".", 0);
+        const parent_acl: Acl = if (darwin) try .read(parent) else .{};
+        defer parent_acl.deinit();
+        try self.copy(io, from, item, parent_acl);
+        try std.Io.Dir.cwd().rename(item, .cwd(), to, io);
+    }
+
+    fn copy(self: *CopyContext, io: std.Io, from: []const u8, to: []const u8, parent_acl: Acl) anyerror!void {
         const a = self.arena.allocator();
         const source = try a.dupeSentinel(u8, from, 0);
         const destination = try a.dupeSentinel(u8, to, 0);
@@ -109,6 +227,13 @@ pub const CopyContext = struct {
                 return;
             }
         }
+        var source_acl: Acl = if (darwin) try .read(source) else .{};
+        defer source_acl.deinit();
+        const inherited_acl: Acl = if (darwin and kind != c.S.IFLNK and !try source_acl.blocksInheritance())
+            try .inherit(parent_acl, kind == c.S.IFDIR)
+        else
+            .{};
+        defer inherited_acl.deinit();
 
         switch (kind) {
             c.S.IFDIR => {
@@ -118,12 +243,12 @@ pub const CopyContext = struct {
                 defer input.close(io);
                 var iterator = input.iterate();
                 while (try iterator.next(io)) |entry| {
-                    try self.copy(io, try std.fs.path.join(a, &.{ from, entry.name }), try std.fs.path.join(a, &.{ to, entry.name }));
+                    try self.copy(io, try std.fs.path.join(a, &.{ from, entry.name }), try std.fs.path.join(a, &.{ to, entry.name }), inherited_acl);
                 }
             },
             c.S.IFREG => {
                 if (darwin) {
-                    if (native.copyfile(source, destination, null, native.COPYFILE_ALL | native.COPYFILE_NOFOLLOW | native.COPYFILE_EXCL) != 0)
+                    if (native.copyfile(source, destination, null, (native.COPYFILE_ALL & ~native.COPYFILE_ACL) | native.COPYFILE_NOFOLLOW | native.COPYFILE_EXCL) != 0)
                         return error.CopyFileFailed;
                 } else {
                     const input = c.open(source, .{ .ACCMODE = .RDONLY, .NOFOLLOW = true, .NONBLOCK = true, .CLOEXEC = true });
@@ -169,15 +294,8 @@ pub const CopyContext = struct {
             return error.PreserveOwnershipFailed;
         if (darwin) {
             if (kind == c.S.IFIFO) {
-                const acl = native.acl_get_link_np(source, native.ACL_TYPE_EXTENDED) orelse blk: {
-                    if (c.errno(@as(c_int, -1)) != .NOENT) return error.ReadAclFailed;
-                    break :blk native.acl_init(0) orelse return error.CreateAclFailed;
-                };
-                defer _ = native.acl_free(acl);
-                if (native.acl_set_link_np(destination, native.ACL_TYPE_EXTENDED, acl) != 0)
-                    return error.PreserveAclFailed;
                 try self.copyXattrs(source, destination);
-            } else if (native.copyfile(source, destination, null, native.COPYFILE_METADATA | native.COPYFILE_NOFOLLOW) != 0)
+            } else if (native.copyfile(source, destination, null, (native.COPYFILE_METADATA & ~native.COPYFILE_ACL) | native.COPYFILE_NOFOLLOW) != 0)
                 return error.PreserveMetadataFailed;
         } else {
             try self.copyXattrs(source, destination);
@@ -192,6 +310,10 @@ pub const CopyContext = struct {
         const times: [2]c.timespec = .{ stat.atime, stat.mtime };
         if (c.utimensat(c.AT.FDCWD, destination, &times, c.AT.SYMLINK_NOFOLLOW) != 0)
             return error.PreserveTimestampsFailed;
+        if (darwin) {
+            try source_acl.append(inherited_acl);
+            try source_acl.apply(destination);
+        }
         if (kind != c.S.IFDIR and stat.nlink > 1)
             try self.hardlinks.put(a, inode, destination);
     }
@@ -221,3 +343,28 @@ pub const CopyContext = struct {
         }
     }
 };
+
+fn clearAcl(path: [:0]const u8) !void {
+    const acl = native.acl_init(0) orelse return error.CreateAclFailed;
+    defer _ = native.acl_free(acl);
+    if (native.acl_set_link_np(path, native.ACL_TYPE_EXTENDED, acl) != 0)
+        return error.SetAclFailed;
+}
+
+fn makeStagingWritable(io: std.Io, path: [:0]const u8) anyerror!void {
+    const stat = try std.Io.Dir.cwd().statFile(io, path, .{ .follow_symlinks = false });
+    if (stat.kind == .sym_link) return;
+    if (darwin) try clearAcl(path);
+    if (stat.kind != .directory) return;
+    if (darwin and c.fchmodat(c.AT.FDCWD, path, 0o700, c.AT.SYMLINK_NOFOLLOW) != 0)
+        return error.SetPermissionsFailed;
+    var dir = try std.Io.Dir.cwd().openDir(io, path, .{ .iterate = true, .follow_symlinks = false });
+    defer dir.close(io);
+    if (!darwin and c.fchmod(dir.handle, 0o700) != 0) return error.SetPermissionsFailed;
+    var iterator = dir.iterate();
+    while (try iterator.next(io)) |entry| {
+        var buffer: [std.fs.max_path_bytes]u8 = undefined;
+        const child = try std.fmt.bufPrintSentinel(&buffer, "{s}/{s}", .{ path, entry.name }, 0);
+        try makeStagingWritable(io, child);
+    }
+}
