@@ -88,6 +88,8 @@ The environment has Zig 0.17.1, hk 2.12.0, and jj 0.38.0 installed through mise.
 - The integrated width oracle matches 6,651 Unicode width and grapheme-boundary vectors. Regeneration produces byte-identical width data.
 - Expanded terminal coverage passes 22 harness tests. The Rust suite now records 17 passes and four known defects, including SIGHUP cleanup.
 
+Review fixes remain open for blocked terminal output, malformed UTF-8 cancellation, doubled Escape, consistent cursor width, submodule metadata provenance, and absent-versus-empty exclusions.
+
 These prove the reference and its harness. They do not establish Zig compatibility.
 
 ## Decisions
