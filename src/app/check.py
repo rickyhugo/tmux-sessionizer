@@ -38,7 +38,7 @@ def graph(root, process, root_deps, catalog_config=False):
             if dependency not in needed:
                 needed.add(dependency)
                 pending.append(dependency)
-    args = ["zig", "test"]
+    args = ["zig", "test", "-cflags", "-std=c17", "--", "vendor/tomlc17/tomlc17.c"]
     for source, dependencies, name in modules:
         if name not in needed:
             continue

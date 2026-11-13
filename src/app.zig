@@ -307,7 +307,7 @@ pub fn run(io: Io, command: A, scratch: A, argv: []const []const u8, env: *const
             return;
         },
         .version => {
-            try std.Io.File.stdout().writeStreamingAll(io, "tmux-sessionizer 0.6.1\n");
+            try std.Io.File.stdout().writeStreamingAll(io, "tmux-sessionizer " ++ @import("build_options").version ++ "\n");
             return;
         },
         else => {},
