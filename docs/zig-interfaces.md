@@ -1,10 +1,11 @@
 # Zig worker interfaces
 
-This foundation implements no command behavior except `--version`. All domain operations return `error.NotImplemented` until their owners port them. Rust remains the reference.
+These are the integrated Zig domain contracts. The implementation and compatibility
+gates are wired; recorded Rust fixtures remain the behavioral reference.
 
 ## Ownership
 
-Five workstreams replace the bodies without changing these public contracts.
+Five domain groups own these public contracts.
 
 | Workstream | Exclusive files | Allowed imports |
 | --- | --- | --- |
@@ -14,11 +15,16 @@ Five workstreams replace the bodies without changing these public contracts.
 | Picker and terminal | `src/picker.zig`, private `src/picker/` | config, matcher, tmux |
 | Commands and adapters | `src/app.zig`, `src/sessions.zig`, `src/tmux.zig`, `src/process.zig`, corresponding private directories | App uses every domain. Sessions uses config, repos, tmux. Tmux uses process. Process uses std only. |
 
-The parent owns `build.zig`, `build.zig.zon`, `src/main.zig`, `src/oracle.zig`, `src/contracts.zig`, mise, and hk after integration. Workers add tests in their own modules or private directories. Each module has a separate test artifact, so `zig build test` runs its tests.
+The integration layer owns `build.zig`, `build.zig.zon`, `src/main.zig`, `src/oracle.zig`, `src/contracts.zig`, mise, and hk. Domain tests live in their modules or private directories. Each module has a separate test artifact, so `zig build test` runs its tests.
 
 Configuration owns picker options, colors, keys, bindings, actions, and VCS provider tags. Picker imports config, never the reverse. Sessions never imports picker. App maps session indices to picker IDs.
 
-The TOML worker can compile a local checkout with `zig build -Dtomlc17=vendor/tomlc17` and `zig build test -Dtomlc17=vendor/tomlc17`. The build attaches `tomlc17.c`, the include directory, and libc to config. The selected native tomlc17 API is pinned at `aa4ca1bc5fe6382ac631a8d1428077a9a084a64d` under MIT. No parser is fetched or vendored here. The parent enables the path by default and adds `vendor` to package paths when the audited parser lands.
+The build compiles vendored `vendor/tomlc17` by default. `-Dtomlc17=PATH`
+selects another local directory. It attaches `tomlc17.c`, the include directory,
+and libc to config. The native API is pinned at
+`aa4ca1bc5fe6382ac631a8d1428077a9a084a64d` under MIT.
+`vendor/tomlc17/README.md` records the local leap-second compatibility patch.
+The build fetches no parser; `vendor` is included in package paths.
 
 ## Lifetimes and errors
 
@@ -34,9 +40,40 @@ const Env = std.process.Environ.Map;
 
 Picker's `scratch` is a reclaimable allocator, not the command arena. Picker owns reusable query buffers and a resettable matching arena. It releases temporary storage on every exit. Matcher callers likewise reclaim or reset all allocations after each query. Picker restores terminal state before returning, reporting an error, or permitting process replacement.
 
-Every effectful operation receives `Io`. Environment-sensitive configuration receives the environment map explicitly. Process requests inherit the parent environment unless `Request.env` overrides it.
+Public domain effect APIs receive `Io`. Environment-sensitive configuration
+receives the environment map explicitly. Process requests inherit the parent
+environment unless `Request.env` overrides it.
 
-Public operations use `anyerror` during migration. A nonzero child exit is data in `Output.term`, not automatically an error. Domain and command owners retain the reference's success policies. `NotImplemented` is always an error, never an empty success.
+There is a narrow exception for synchronous native backend helpers:
+
+- `src/picker/terminal.zig` owns a native terminal fd, termios, descriptor flags,
+  polling, and signal handlers.
+- The account lookup helper in `src/config.zig` uses libc `getuid`/`getpwuid`
+  when the supplied environment has no home directory.
+- The metadata-preserving copy backend in `src/process/move.zig` uses native
+  staging creation, no-follow file/link copying, metadata, ACL, xattr, ownership,
+  timestamp, and file-flag calls. They preserve private staging, hardlinks, and
+  platform metadata together, rather than substituting a generic file copy.
+
+These helpers need no unused `Io` parameter. The exception does not permit
+ordinary file traversal, subprocesses, or public domain operations to bypass
+`Io`. It preserves exact platform behavior behind the owning domain boundary,
+not a second application-wide effect interface.
+
+Native calls are synchronous and do not participate in `std.Io` cancellation.
+The terminal backend owns signal handling and restoration: nonblocking writes
+check termination and suspension, output polling waits at most 50 ms, and the
+picker checks signals around input polling (35 or 100 ms). It restores termios
+before signal re-delivery or suspension; cleanup does not wait for queued output.
+Account lookup can block inside libc; it has no separate cancellation guarantee.
+The move adapter owns staging, metadata completion, publication, and cleanup;
+native helper calls do not create detached work or transfer cleanup to callers.
+Directory traversal, publication, and tree cleanup still use the supplied `Io`.
+Do not describe the native portions as interruptible `Io` operations.
+
+Public domain operations use `anyerror`. A nonzero child exit is data in
+`Output.term`, not automatically an error. Domain and command owners retain
+the reference's success policies.
 
 ## Data identities
 
@@ -115,7 +152,8 @@ pub fn rank(allocator: std.mem.Allocator, query: []const u8, candidates: []const
 
 This entry point is pure except allocator use. It preserves Nucleo query grammar, smart case, smart normalization, grapheme representation, and scoring. Duplicate labels remain separate input indices. The caller owns and frees the returned slice. Matcher frees its internal scratch before returning.
 
-The independent engine worker owns only `src/matcher/engine.zig` with the same argument and result types. This foundation leaves the facade as `NotImplemented` and creates no engine file or directory. The parent later replaces the facade body with `return @import("matcher/engine.zig").rank(allocator, query, candidates);`.
+`src/matcher.zig` exposes `src/matcher/engine.zig`'s `rank` with the same argument
+and result types. Matching internals remain private to that directory.
 
 The default build installs `zig-out/bin/tms-oracle`. `zig build oracle` builds and installs only this executable. Its protocol is:
 
@@ -123,7 +161,10 @@ The default build installs `zig-out/bin/tms-oracle`. `zig build oracle` builds a
 tms-oracle rank QUERY ITEM...
 ```
 
-The oracle calls `matcher.rank`, then prints each original `ITEM` selected by its ranked index, one per line. It performs no label lookup or deduplication. Invalid protocol exits 2. The pending matcher exits 1 with `NotImplemented`. Once matcher lands, the parent's `scripts/compat.py --oracle /absolute/path/to/zig-out/bin/tms-oracle` runs the 25 baseline vectors.
+The oracle calls `matcher.rank`, then prints each original `ITEM` selected by
+its ranked index, one per line. It performs no label lookup or deduplication.
+Invalid protocol exits 2. `mise run test:compat` checks all 25 stored Rust ranking
+vectors through this Zig oracle, alongside command compatibility.
 
 ## Picker
 
@@ -207,8 +248,12 @@ pub fn movePath(io: Io, a: A, from: []const u8, to: []const u8) anyerror!void;
 
 `movePath` replaces the reference's `mv` operation with native filesystem operations, including observable overwrite and cross-device behavior. The rename command retains the baseline's ignored move failure at its call site.
 
-## Foundation checks
+## Integrated checks
 
 `mise run build` installs tms and the oracle. `mise run test` compiles every public domain declaration and Client method, then runs all module tests. Contract tests check optional collection presence, stable identity across reordered injection, and scalar cursor representation. The oracle test checks output order, original Unicode bytes, and duplicate labels without claiming matcher parity.
 
-`mise run fmt` formats Zig and Rust through hk. `mise run ci` validates hk, checks formatting, tests Zig, builds ReleaseFast, and runs the unchanged Rust suite. Behavioral parity remains the worker and parent compatibility gate.
+`mise run fmt` formats Zig through hk. `mise run ci` validates hk, checks
+formatting, tests Zig, builds ReleaseFast, and runs harness isolation, command
+adapters, command/ranking compatibility, strict terminal/popup checks, and
+focused picker regressions. Rust tooling was retired after compatibility passed.
+See [development](development.md) for commands and Rust reference reproduction.

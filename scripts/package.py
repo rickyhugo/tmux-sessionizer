@@ -15,6 +15,21 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+# Required distribution notices, including names that prefix discovery misses.
+# Keep the independent policy assertions in tests/packaging in sync.
+REQUIRED_SOURCE_NOTICES = (
+    "LICENSE",
+    "src/cli/registration/LICENSE",
+    "src/config/UNICODE-LICENSE",
+    "src/picker/LICENSE-unicode-width",
+    "vendor/licenses/matcher/NOTICE.md",
+    "vendor/licenses/matcher/Unicode-3.0.txt",
+    "vendor/licenses/matcher/nucleo-MPL-2.0.txt",
+    "vendor/licenses/matcher/unicode-Apache-2.0.txt",
+    "vendor/licenses/matcher/unicode-COPYRIGHT.txt",
+    "vendor/licenses/matcher/unicode-MIT.txt",
+    "vendor/tomlc17/LICENSE",
+)
 TARGETS = {
     "aarch64-apple-darwin": ("aarch64-macos", "Darwin", "arm64"),
     "x86_64-apple-darwin": ("x86_64-macos", "Darwin", "x86_64"),
@@ -38,7 +53,16 @@ def version():
 
 
 def notices():
-    files = {Path("LICENSE"): ROOT / "LICENSE"}
+    files = {}
+    for name in REQUIRED_SOURCE_NOTICES:
+        path = ROOT / name
+        if path.is_symlink():
+            raise ValueError(f"license or notice must not be a symlink: {path}")
+        if not path.is_file():
+            raise ValueError(f"required license or notice is missing: {path}")
+        files[Path(name)] = path
+    # Include additional conventionally named notices without weakening the
+    # required manifest when a source notice is removed or renamed.
     for base in (ROOT, ROOT / "vendor", ROOT / "src"):
         if not base.exists():
             continue

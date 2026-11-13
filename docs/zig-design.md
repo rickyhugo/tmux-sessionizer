@@ -50,6 +50,14 @@ The build owns allowed imports. Modules expose domain records rather than proces
 
 Use Zig 0.17.1 and explicit `std.Io`. A command arena owns arguments, configuration, catalog entries, and durable subprocess results. Picker buffers and matcher workspace reuse storage. They must not retain an allocation for every keystroke.
 
+Public domain effect APIs retain `std.Io`. Synchronous native backend helpers
+are a narrow exception: terminal fd/signal management, libc account lookup, and
+filesystem metadata preservation use native APIs. They do not accept ignored
+`Io` parameters or claim `Io` cancellation. Their domain owners retain cleanup;
+the terminal owner also retains interruption and signal restoration.
+See [interfaces](zig-interfaces.md#lifetimes-and-errors) for the exact scope and
+cancellation limits.
+
 One terminal owner restores saved attributes and screen state before returning or replacing the process. One process adapter owns child launch and wait or kill behavior. Nonzero exit handling remains command-specific.
 
 ## Dependencies

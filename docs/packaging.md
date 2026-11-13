@@ -56,6 +56,26 @@ Verification checks checksums, the exact member set, permissions, executable
 format and CPU, and notice bytes. `--smoke` also runs `--version` on a matching
 native host. Version checks do not replace behavioral tests.
 
+`scripts/package.py` declares the required source notices explicitly in
+`REQUIRED_SOURCE_NOTICES`. Missing files and symlinks fail packaging. Additional
+conventionally named notices are discovered too. This manifest includes
+`src/config/UNICODE-LICENSE`; filename-prefix discovery alone cannot find it.
+Archives, source installation, and Nix use the same notice installer/list.
+
+Run the independent packaging policy regression:
+
+```sh
+MISE_AUTO_INSTALL=false mise exec -- python3 -m unittest discover -s tests/packaging -p 'test_*.py'
+```
+
+Its expected notice paths and bytes do not come from `notices()`. It checks
+archive contents and source installation under a spaced prefix, including the
+config Unicode notice. It also rejects an archive with that notice removed
+after recomputing the checksum. Other negative cases cover altered notice bytes,
+member sets/types/modes, checksums, CPU, foreign smoke requests, and version tags.
+Compilation is stubbed in these policy tests. Use the native `package --smoke`
+task above for a real release build and execution check.
+
 ## Source installation
 
 ```sh
@@ -124,7 +144,16 @@ Cargo-dist configuration have been removed.
 The integrated application at `3ad4fda` passed archive creation and inspection
 for all four targets. Apple Silicon also passed native extraction and version
 execution. The source installer passed with a prefix containing spaces and
-byte-for-byte notice comparison.
+byte-for-byte notice comparison against the then-discovered notice list.
+Review later found that list omitted `src/config/UNICODE-LICENSE`. The explicit
+manifest and independent packaging regression above correct that omission;
+the earlier verification did not prove complete notice coverage.
+
+The review-fix rerun rebuilt all four archives and independently compared all
+14 notice files with their source bytes. Apple Silicon passed native archive
+execution and a real source installation with a spaced prefix. All ten
+packaging policy tests passed, including the missing-Unicode-notice regression.
+This rerun did not execute the other native targets or rebuild Nix packages.
 
 The packaging implementation's earlier negative checks rejected altered
 checksums, extra or missing members, duplicates, wrong permissions, symlinks,
@@ -138,4 +167,4 @@ See [Linux verification](linux-verification.md) and
 
 Hosted workflows and native Intel macOS/x86-64 Linux archive execution remain
 unexecuted locally. Cross-build success is not native runtime evidence.
-Nothing has been pushed, tagged, or released by this migration.
+These verification commands do not tag or publish a release.
