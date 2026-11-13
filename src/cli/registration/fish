@@ -1,0 +1,1 @@
+complete --keep-order --exclusive --command @BIN@ --arguments "(COMPLETE=fish "'@COMPLETER@'" -- (commandline --current-process --tokenize --cut-at-cursor) (commandline --current-token))"

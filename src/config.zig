@@ -2,6 +2,9 @@ const std = @import("std");
 const A = std.mem.Allocator;
 const Io = std.Io;
 const Env = std.process.Environ.Map;
+const toml = @import("config/toml.zig");
+const builtin = @import("builtin");
+const unicode = @import("config/unicode_alphanumeric.zig");
 
 pub const VcsProvider = enum { git, jujutsu };
 pub const Order = enum { alphabetical, last_attached };
@@ -145,48 +148,672 @@ pub const Edit = union(enum) {
     delete_mark: usize,
     clear_marks,
 };
+pub const Diagnostic = struct { text: []const u8, exit_code: u8 = 1 };
+pub const LoadResult = union(enum) { config: Config, diagnostic: Diagnostic };
+pub threadlocal var failure: ?Diagnostic = null;
 
 pub fn load(io: Io, a: A, env: *const Env) anyerror!Config {
-    _ = .{ io, a, env };
-    return error.NotImplemented;
+    failure = null;
+    var message: ?[]const u8 = null;
+    return loadInternal(io, a, env, &message) catch |err| {
+        if (err != error.OutOfMemory and err != error.Canceled) failure = .{ .text = message orelse try std.fmt.allocPrint(a, "Error: Config Error\n├─▶ Could not load configuration\n╰─▶ {s}\n", .{@errorName(err)}) };
+        return err;
+    };
+}
+
+pub fn loadDetailed(io: Io, a: A, env: *const Env) !LoadResult {
+    const config = load(io, a, env) catch |err| {
+        if (err == error.OutOfMemory or err == error.Canceled) return err;
+        return .{ .diagnostic = failure.? };
+    };
+    return .{ .config = config };
+}
+
+fn loadInternal(io: Io, a: A, env: *const Env, diagnostic: ?*?[]const u8) anyerror!Config {
+    var tree: toml.Value = .{ .table = .empty };
+    var source: []const u8 = "";
+    if (env.get("TMS_CONFIG_FILE")) |path| {
+        if (!std.unicode.utf8ValidateSlice(path)) return error.InvalidConfigEnvironment;
+        source = path;
+        if (!try loadFile(io, a, &tree, path, diagnostic)) {
+            source = try std.fmt.allocPrint(a, "{s}.toml", .{path});
+            _ = try loadFile(io, a, &tree, source, diagnostic);
+        }
+    } else {
+        const home = try homeDir(a, env);
+        const platform = try platformDir(a, env);
+        if (home == null and platform == null) return error.NoConfigLocation;
+        if (home) |h| {
+            source = try std.fs.path.join(a, &.{ h, ".config/tms/config.toml" });
+            _ = try loadFile(io, a, &tree, source, diagnostic);
+        }
+        if (platform) |p| {
+            source = try std.fs.path.join(a, &.{ p, "tms/config.toml" });
+            _ = try loadFile(io, a, &tree, source, diagnostic);
+        }
+    }
+    var config: Config = .{};
+    inline for (comptime std.meta.fieldNames(Config), comptime std.meta.fieldTypes(Config)) |name, T| {
+        if (tree.table.get(name)) |v| @field(config, name) = toml.decode(T, a, v) catch |err| {
+            if (diagnostic) |d| d.* = try std.fmt.allocPrint(a, "Error: Config Error\n├─▶ Could not load configuration\n│   ╰╴Could not deserialize configuration\n╰─▶ {s}\n", .{try toml.explain(T, a, v, name, try sourceName(io, a, source))});
+            return err;
+        };
+    }
+    return config;
 }
 
 pub fn commit(io: Io, a: A, env: *const Env, cfg: *Config, edit: Edit) anyerror!void {
-    _ = .{ io, a, env, cfg, edit };
-    return error.NotImplemented;
+    switch (edit) {
+        .settings => |settings| {
+            if (settings.paths) |paths| {
+                const dirs = try a.alloc(SearchDirectory, paths.len);
+                for (paths, dirs, 0..) |path, *dir, i| {
+                    const trimmed = if (std.mem.endsWith(u8, path, "/")) path[0 .. path.len - 1] else path;
+                    dir.* = .{
+                        .path = try canonical(io, a, env, trimmed),
+                        .depth = if (settings.max_depths) |depths| if (i < depths.len) depths[i] else 10 else 10,
+                    };
+                }
+                cfg.search_dirs = dirs;
+            }
+            if (settings.default_session) |name| {
+                const normalized = try a.dupe(u8, name);
+                std.mem.replaceScalar(u8, normalized, '.', '_');
+                cfg.default_session = normalized;
+            }
+            inline for (.{ "display_full_path", "search_submodules", "recursive_submodules", "switch_filter_unknown", "session_sort_order", "clone_repo_switch", "list_worktrees" }) |name| {
+                if (@field(settings, name)) |v| @field(cfg, name) = v;
+            }
+            if (settings.picker_colors) |colors| {
+                var current = cfg.picker_colors orelse PickerColors{};
+                inline for (comptime std.meta.fieldNames(PickerColors)) |name| {
+                    if (@field(colors, name)) |v| @field(current, name) = v;
+                }
+                cfg.picker_colors = current;
+            }
+            if (settings.excluded) |excluded| cfg.excluded_dirs = try std.mem.concat(a, []const u8, &.{ cfg.excluded_dirs orelse &.{}, excluded });
+            if (settings.remove) |remove| {
+                const current = cfg.excluded_dirs orelse return error.RemoveWithoutExclusions;
+                var kept: std.ArrayList([]const u8) = .empty;
+                for (current) |item| {
+                    var removed = false;
+                    for (remove) |r| if (std.mem.eql(u8, item, r)) {
+                        removed = true;
+                        break;
+                    };
+                    if (!removed) try kept.append(a, item);
+                }
+                cfg.excluded_dirs = try kept.toOwnedSlice(a);
+            }
+        },
+        .add_bookmark => |path| {
+            const items = cfg.bookmarks orelse &.{};
+            var found = false;
+            for (items) |item| if (std.mem.eql(u8, item, path)) {
+                found = true;
+                break;
+            };
+            if (!found) cfg.bookmarks = try std.mem.concat(a, []const u8, &.{ items, &.{path} });
+        },
+        .delete_bookmark => |path| if (cfg.bookmarks) |items| {
+            var kept: std.ArrayList([]const u8) = .empty;
+            var removed = false;
+            for (items) |item| {
+                if (!removed and std.mem.eql(u8, item, path)) {
+                    removed = true;
+                    continue;
+                }
+                try kept.append(a, item);
+            }
+            cfg.bookmarks = try kept.toOwnedSlice(a);
+        },
+        .set_mark => |mark| {
+            const index = mark.index orelse blk: {
+                const items = try validMarks(io, a, env, cfg);
+                var next: usize = 0;
+                for (items) |item| {
+                    if (item.index != next) break;
+                    next += 1;
+                }
+                break :blk next;
+            };
+            if (cfg.marks == null) cfg.marks = .empty;
+            try cfg.marks.?.put(a, try std.fmt.allocPrint(a, "{d}", .{index}), mark.path);
+        },
+        .delete_mark => |index| if (cfg.marks) |*marks| {
+            _ = marks.remove(try std.fmt.allocPrint(a, "{d}", .{index}));
+        },
+        .clear_marks => cfg.marks = null,
+    }
+    const path = env.get("TMS_CONFIG_FILE") orelse blk: {
+        if (try platformDir(a, env)) |p| break :blk try std.fs.path.join(a, &.{ p, "tms/config.toml" });
+        if (try homeDir(a, env)) |h| break :blk try std.fs.path.join(a, &.{ h, ".config/tms/config.toml" });
+        return error.NoConfigLocation;
+    };
+    if (std.fs.path.dirname(path)) |parent| try Io.Dir.cwd().createDirPath(io, parent);
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = try toml.encode(a, cfg.*) });
+}
+
+pub fn editDiagnostic(err: anyerror) ?Diagnostic {
+    return switch (err) {
+        error.RemoveWithoutExclusions => .{ .exit_code = 101, .text = "\npanic:\nnot yet implemented\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n" },
+        error.MarkHasNoName => .{ .exit_code = 101, .text = "\npanic:\nThe file name doesn't end in `..`\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n" },
+        error.FileNotFound => .{ .text = "Error: IO Error\n╰─▶ No such file or directory (os error 2)\n" },
+        error.AccessDenied => .{ .text = "Error: IO Error\n╰─▶ Permission denied (os error 13)\n" },
+        error.NoDefaultSearchPath => .{ .text = "Error: Config Error\n╰─▶ No default search path was found\n    ╰╴You must configure at least one default search path with the `config` subcommand. E.g `tms config` \n" },
+        error.NoValidSearchPath => .{ .text = "Error: Config Error\n╰─▶ No valid search path was found\n    ╰╴You must configure at least one valid search path with the `config` subcommand. E.g `tms config` \n" },
+        else => null,
+    };
 }
 
 pub fn exportToml(a: A, cfg: *const Config, defaults: bool) anyerror![]const u8 {
-    _ = .{ a, cfg, defaults };
-    return error.NotImplemented;
+    const raw = if (defaults) Config{} else cfg.*;
+    const options = try pickerOptions(a, &raw);
+    var exported = raw;
+    exported.search_paths = null;
+    exported.input_position = null;
+    inline for (.{ "display_full_path", "search_submodules", "recursive_submodules", "switch_filter_unknown", "list_worktrees" }) |field| @field(exported, field) = @field(raw, field) orelse false;
+    exported.session_sort_order = raw.session_sort_order orelse .alphabetical;
+    exported.clone_repo_switch = raw.clone_repo_switch orelse .always;
+    exported.excluded_dirs = raw.excluded_dirs orelse &.{};
+    exported.search_dirs = raw.search_dirs orelse &.{};
+    exported.sessions = raw.sessions orelse &.{};
+    exported.bookmarks = raw.bookmarks orelse &.{};
+    exported.session_configs = raw.session_configs orelse .empty;
+    exported.marks = raw.marks orelse .empty;
+    exported.vcs_providers = raw.vcs_providers orelse &.{.git};
+    exported.picker_colors = options.colors;
+    exported.shortcuts = options.bindings;
+    return toml.encode(a, exported);
 }
 
 pub fn searchRoots(io: Io, a: A, env: *const Env, cfg: *const Config) anyerror![]const SearchDirectory {
-    _ = .{ io, a, env, cfg };
-    return error.NotImplemented;
+    const dirs = cfg.search_dirs orelse &.{};
+    const legacy = cfg.search_paths orelse &.{};
+    if (dirs.len == 0 and legacy.len == 0) return error.NoDefaultSearchPath;
+    var roots: std.ArrayList(SearchDirectory) = .empty;
+    for (dirs) |dir| {
+        const path = canonical(io, a, env, dir.path) catch continue;
+        try roots.append(a, .{ .path = path, .depth = dir.depth });
+    }
+    for (legacy) |old| {
+        const path = canonical(io, a, env, old) catch continue;
+        try roots.append(a, .{ .path = path, .depth = 10 });
+    }
+    if (roots.items.len == 0) return error.NoValidSearchPath;
+    return roots.toOwnedSlice(a);
 }
 
 pub fn bookmarkPaths(io: Io, a: A, env: *const Env, cfg: *const Config) anyerror![]const []const u8 {
-    _ = .{ io, a, env, cfg };
-    return error.NotImplemented;
+    var paths: std.ArrayList([]const u8) = .empty;
+    for (cfg.bookmarks orelse &.{}) |path| try paths.append(a, canonical(io, a, env, path) catch continue);
+    return paths.toOwnedSlice(a);
 }
 
 pub fn validMarks(io: Io, a: A, env: *const Env, cfg: *const Config) anyerror![]const Mark {
-    _ = .{ io, a, env, cfg };
-    return error.NotImplemented;
+    var marks: std.ArrayList(Mark) = .empty;
+    if (cfg.marks) |map| {
+        var it = map.iterator();
+        while (it.next()) |entry| {
+            const index = parseIndex(entry.key_ptr.*) catch continue;
+            const path = canonical(io, a, env, entry.value_ptr.*) catch continue;
+            if (std.mem.eql(u8, path, "/")) return error.MarkHasNoName;
+            try marks.append(a, .{ .index = index, .path = path });
+        }
+    }
+    std.mem.sort(Mark, marks.items, {}, struct {
+        fn less(_: void, l: Mark, r: Mark) bool {
+            return l.index < r.index;
+        }
+    }.less);
+    return marks.toOwnedSlice(a);
 }
 
 pub fn expandPath(io: Io, a: A, env: *const Env, path: []const u8) anyerror![]const u8 {
-    _ = .{ io, a, env, path };
-    return error.NotImplemented;
+    _ = io;
+    if (!std.unicode.utf8ValidateSlice(path)) return error.InvalidPath;
+    var out: std.Io.Writer.Allocating = .init(a);
+    var i: usize = 0;
+    while (i < path.len) {
+        if (path[i] != '$') {
+            try out.writer.writeByte(path[i]);
+            i += 1;
+            continue;
+        }
+        i += 1;
+        if (i < path.len and path[i] == '$') {
+            try out.writer.writeByte('$');
+            i += 1;
+            continue;
+        }
+        if (i < path.len and path[i] == '{') {
+            if (std.mem.indexOfScalarPos(u8, path, i + 1, '}')) |end| {
+                const expression = path[i + 1 .. end];
+                const split = std.mem.indexOf(u8, expression, ":-");
+                const fallback = if (split) |n| if (n != 0) expression[n + 2 ..] else null else null;
+                const name = if (fallback != null) expression[0..split.?] else expression;
+                const value = env.get(name) orelse fallback orelse return error.MissingEnvironmentVariable;
+                if (!std.unicode.utf8ValidateSlice(value)) return error.InvalidEnvironmentVariable;
+                try out.writer.writeAll(value);
+                i = end + 1;
+                continue;
+            }
+            try out.writer.writeAll("${");
+            i += 1;
+            continue;
+        }
+        const start = i;
+        while (i < path.len) {
+            const size = try std.unicode.utf8ByteSequenceLength(path[i]);
+            const scalar = try std.unicode.utf8Decode(path[i .. i + size]);
+            if (!variableCharacter(scalar)) break;
+            i += size;
+        }
+        if (i == start) {
+            try out.writer.writeByte('$');
+        } else {
+            const value = env.get(path[start..i]) orelse return error.MissingEnvironmentVariable;
+            if (!std.unicode.utf8ValidateSlice(value)) return error.InvalidEnvironmentVariable;
+            try out.writer.writeAll(value);
+        }
+    }
+    const expanded = try out.toOwnedSlice();
+    if (path.len > 0 and path[0] == '~' and expanded.len > 0 and expanded[0] == '~' and (expanded.len == 1 or expanded[1] == '/')) {
+        if (try homeDir(a, env)) |home| return std.mem.concat(a, u8, &.{ home, expanded[1..] });
+    }
+    return expanded;
+}
+
+fn variableCharacter(scalar: u21) bool {
+    if (scalar == '_') return true;
+    var low: usize = 0;
+    var high: usize = unicode.ranges.len;
+    while (low < high) {
+        const mid = low + (high - low) / 2;
+        const range = unicode.ranges[mid];
+        if (scalar < range[0]) {
+            high = mid;
+        } else if (scalar > range[1]) {
+            low = mid + 1;
+        } else return true;
+    }
+    return false;
 }
 
 pub fn pickerOptions(a: A, cfg: *const Config) anyerror!PickerOptions {
-    _ = .{ a, cfg };
-    return error.NotImplemented;
+    var colors = cfg.picker_colors orelse PickerColors{};
+    const defaults = PickerColors{ .highlight_color = .light_blue, .highlight_text_color = .black, .border_color = .dark_gray, .info_color = .light_yellow, .prompt_color = .light_green };
+    inline for (comptime std.meta.fieldNames(PickerColors)) |name| @field(colors, name) = @field(colors, name) orelse @field(defaults, name);
+    var bindings: std.ArrayList(Binding) = .empty;
+    const names = [_][]const u8{ "ctrl-c", "esc", "enter", "delete", "ctrl-d", "backspace", "down", "ctrl-j", "ctrl-n", "up", "ctrl-k", "ctrl-p", "left", "right", "ctrl-w", "ctrl-u", "ctrl-a", "ctrl-e" };
+    const actions = [_]PickerAction{ .cancel, .cancel, .confirm, .delete, .delete, .backspace, .move_down, .move_down, .move_down, .move_up, .move_up, .move_up, .cursor_left, .cursor_right, .delete_word, .delete_to_line_start, .move_to_line_start, .move_to_line_end };
+    for (names, actions) |name, action| try bindings.append(a, .{ .key = try parseKey(name), .action = action });
+    for (cfg.shortcuts orelse &.{}) |binding| {
+        var found = false;
+        for (bindings.items) |*old| {
+            if (std.meta.eql(old.key, binding.key)) {
+                old.* = binding;
+                found = true;
+                break;
+            }
+        }
+        if (!found) try bindings.append(a, binding);
+    }
+    return .{ .colors = colors, .input_position = cfg.input_position orelse .bottom, .bindings = try bindings.toOwnedSlice(a) };
 }
 
 pub fn parseKey(text: []const u8) anyerror!Key {
-    _ = text;
-    return error.NotImplemented;
+    var tokens = std.mem.splitScalar(u8, text, '-');
+    var mods: Modifiers = .{};
+    var last = tokens.next().?;
+    while (tokens.next()) |next| {
+        inline for (.{ "shift", "ctrl", "alt", "super", "hyper", "meta" }) |name| if (std.ascii.eqlIgnoreCase(last, name)) {
+            @field(mods, name) = true;
+        };
+        last = next;
+    }
+    const names = .{ "esc", "enter", "left", "right", "up", "down", "home", "end", "pageup", "pagedown", "backtab", "backspace", "delete", "insert", "tab" };
+    const codes = [_]KeyCode{ .esc, .enter, .left, .right, .up, .down, .home, .end, .page_up, .page_down, .back_tab, .backspace, .delete, .insert, .tab };
+    inline for (names, codes) |name, code| if (std.ascii.eqlIgnoreCase(last, name)) return .{ .code = code, .modifiers = mods };
+    if (std.ascii.eqlIgnoreCase(last, "del")) return .{ .code = .delete, .modifiers = mods };
+    if (std.ascii.eqlIgnoreCase(last, "ins")) return .{ .code = .insert, .modifiers = mods };
+    if (std.ascii.eqlIgnoreCase(last, "space")) return .{ .code = .{ .char = ' ' }, .modifiers = mods };
+    if (last.len >= 2 and std.ascii.toLower(last[0]) == 'f') {
+        const n = std.fmt.parseInt(u8, last[1..], 10) catch 0;
+        if (n >= 1 and n <= 12 and last[1] != '0' and last[1] != '+' and last.len == (if (n < 10) @as(usize, 2) else 3)) return .{ .code = .{ .function = n }, .modifiers = mods };
+    }
+    // The reference accepts one byte, not one Unicode scalar, and folds ASCII.
+    if (last.len == 1 and last[0] < 128) return .{ .code = .{ .char = std.ascii.toLower(last[0]) }, .modifiers = mods };
+    return error.InvalidKey;
+}
+
+pub fn keyName(a: A, key: Key) ![]const u8 {
+    var out: std.Io.Writer.Allocating = .init(a);
+    inline for (.{ "shift", "ctrl", "alt", "super", "hyper", "meta" }) |name| if (@field(key.modifiers, name)) try out.writer.print("{s}-", .{name});
+    switch (key.code) {
+        .char => |ch| if (ch == ' ') try out.writer.writeAll("space") else {
+            var buf: [4]u8 = undefined;
+            const n = try std.unicode.utf8Encode(ch, &buf);
+            try out.writer.writeAll(buf[0..n]);
+        },
+        .function => |n| try out.writer.print("f{d}", .{n}),
+        .page_up => try out.writer.writeAll("pageup"),
+        .page_down => try out.writer.writeAll("pagedown"),
+        .back_tab => try out.writer.writeAll("backtab"),
+        else => try out.writer.writeAll(@tagName(key.code)),
+    }
+    return out.toOwnedSlice();
+}
+
+pub fn parseColor(text: []const u8) !Color {
+    var buffer: [128]u8 = undefined;
+    var n: usize = 0;
+    for (text) |ch| {
+        if (ch == ' ' or ch == '-' or ch == '_') continue;
+        if (n == buffer.len) return error.InvalidColor;
+        buffer[n] = std.ascii.toLower(ch);
+        n += 1;
+    }
+    var name: []const u8 = buffer[0..n];
+    var aliases: [128]u8 = undefined;
+    if (std.mem.startsWith(u8, name, "bright")) {
+        @memcpy(aliases[0..5], "light");
+        @memcpy(aliases[5 .. 5 + name.len - 6], name[6..]);
+        name = aliases[0 .. name.len - 1];
+    }
+    if (std.mem.eql(u8, name, "grey") or std.mem.eql(u8, name, "silver")) return .gray;
+    if (std.mem.eql(u8, name, "darkgrey") or std.mem.eql(u8, name, "darksilver") or std.mem.eql(u8, name, "lightblack")) return .dark_gray;
+    if (std.mem.eql(u8, name, "lightwhite") or std.mem.eql(u8, name, "lightgray") or std.mem.eql(u8, name, "lightgrey") or std.mem.eql(u8, name, "lightsilver")) return .white;
+    const names = .{ "reset", "black", "red", "green", "yellow", "blue", "magenta", "cyan", "gray", "darkgray", "lightred", "lightgreen", "lightyellow", "lightblue", "lightmagenta", "lightcyan", "white" };
+    const colors = [_]Color{ .reset, .black, .red, .green, .yellow, .blue, .magenta, .cyan, .gray, .dark_gray, .light_red, .light_green, .light_yellow, .light_blue, .light_magenta, .light_cyan, .white };
+    inline for (names, colors) |candidate, color| if (std.mem.eql(u8, name, candidate)) return color;
+    if (text.len == 7 and text[0] == '#') return .{ .rgb = .{
+        .r = std.fmt.parseInt(u8, text[1..3], 16) catch return error.InvalidColor,
+        .g = std.fmt.parseInt(u8, text[3..5], 16) catch return error.InvalidColor,
+        .b = std.fmt.parseInt(u8, text[5..7], 16) catch return error.InvalidColor,
+    } };
+    return .{ .indexed = std.math.cast(u8, parseIndex(text) catch return error.InvalidColor) orelse return error.InvalidColor };
+}
+
+pub fn colorName(a: A, color: Color) ![]const u8 {
+    return switch (color) {
+        .reset => "Reset",
+        .black => "Black",
+        .red => "Red",
+        .green => "Green",
+        .yellow => "Yellow",
+        .blue => "Blue",
+        .magenta => "Magenta",
+        .cyan => "Cyan",
+        .gray => "Gray",
+        .dark_gray => "DarkGray",
+        .light_red => "LightRed",
+        .light_green => "LightGreen",
+        .light_yellow => "LightYellow",
+        .light_blue => "LightBlue",
+        .light_magenta => "LightMagenta",
+        .light_cyan => "LightCyan",
+        .white => "White",
+        .indexed => |n| std.fmt.allocPrint(a, "{d}", .{n}),
+        .rgb => |rgb| std.fmt.allocPrint(a, "#{X:0>2}{X:0>2}{X:0>2}", .{ rgb.r, rgb.g, rgb.b }),
+    };
+}
+
+pub fn parseIndex(text: []const u8) !usize {
+    const digits = if (std.mem.startsWith(u8, text, "+")) text[1..] else text;
+    if (digits.len == 0) return error.InvalidIndex;
+    for (digits) |ch| if (!std.ascii.isDigit(ch)) return error.InvalidIndex;
+    return std.fmt.parseInt(usize, digits, 10) catch error.InvalidIndex;
+}
+
+fn canonical(io: Io, a: A, env: *const Env, path: []const u8) ![]const u8 {
+    const expanded = try expandPath(io, a, env, path);
+    if (expanded.len == 0) return error.FileNotFound;
+    const result = try Io.Dir.cwd().realPathFileAlloc(io, expanded, a);
+    if (!std.unicode.utf8ValidateSlice(result)) return error.InvalidPath;
+    return result;
+}
+
+fn homeDir(a: A, env: *const Env) !?[]const u8 {
+    if (env.get("HOME")) |home| if (home.len != 0) return home;
+    if (std.c.getpwuid(std.c.getuid())) |user| if (user.dir) |dir| return try a.dupe(u8, std.mem.span(dir));
+    return null;
+}
+
+fn platformDir(a: A, env: *const Env) !?[]const u8 {
+    if (builtin.os.tag != .macos) if (env.get("XDG_CONFIG_HOME")) |p| if (std.fs.path.isAbsolute(p)) return p;
+    if (try homeDir(a, env)) |h| return try std.fs.path.join(a, &.{ h, if (builtin.os.tag == .macos) "Library/Application Support" else ".config" });
+    return null;
+}
+
+fn loadFile(io: Io, a: A, tree: *toml.Value, path: []const u8, diagnostic: ?*?[]const u8) !bool {
+    const stat = Io.Dir.cwd().statFile(io, path, .{}) catch |err| switch (err) {
+        error.FileNotFound, error.NotDir => return false,
+        else => return err,
+    };
+    if (stat.kind != .file) return false;
+    // Optional config sources ignore existing files with unregistered extensions.
+    if (!std.mem.eql(u8, std.fs.path.extension(path), ".toml")) return true;
+    const file = Io.Dir.cwd().openFile(io, path, .{}) catch |err| switch (err) {
+        error.FileNotFound => return false,
+        else => return err,
+    };
+    defer file.close(io);
+    var reader = file.reader(io, &.{});
+    const bytes = try reader.interface.allocRemaining(a, .unlimited);
+    const text = try utf8Lossy(a, if (std.mem.startsWith(u8, bytes, "\xef\xbb\xbf")) bytes[3..] else bytes);
+    var message: ?[]const u8 = null;
+    const parsed = toml.parseDetailed(a, text, &message) catch |err| {
+        if (diagnostic) |d| d.* = try std.fmt.allocPrint(a, "Error: Config Error\n├─▶ Could not load configuration\n│   ╰╴Could not parse configuration\n╰─▶ {s} in {s}\n", .{ message orelse @errorName(err), try sourceName(io, a, path) });
+        return err;
+    };
+    try toml.merge(a, tree, parsed);
+    return true;
+}
+
+fn utf8Lossy(a: A, bytes: []const u8) ![]const u8 {
+    if (std.unicode.utf8ValidateSlice(bytes)) return bytes;
+    var out: std.Io.Writer.Allocating = .init(a);
+    var i: usize = 0;
+    while (i < bytes.len) {
+        const n = std.unicode.utf8ByteSequenceLength(bytes[i]) catch {
+            try out.writer.writeAll("\xef\xbf\xbd");
+            i += 1;
+            continue;
+        };
+        var count: usize = 1;
+        if (i + 1 < bytes.len and
+            ((bytes[i] == 0xE0 and bytes[i + 1] < 0xA0) or
+                (bytes[i] == 0xED and bytes[i + 1] >= 0xA0) or
+                (bytes[i] == 0xF0 and bytes[i + 1] < 0x90) or
+                (bytes[i] == 0xF4 and bytes[i + 1] >= 0x90)))
+        {
+            try out.writer.writeAll("\xef\xbf\xbd");
+            i += 1;
+            continue;
+        }
+        while (count < n and i + count < bytes.len and (bytes[i + count] & 0xC0) == 0x80) : (count += 1) {}
+        if (count != n) {
+            try out.writer.writeAll("\xef\xbf\xbd");
+            i += count;
+        } else if (std.unicode.utf8Decode(bytes[i .. i + n])) |_| {
+            try out.writer.writeAll(bytes[i .. i + n]);
+            i += n;
+        } else |_| {
+            try out.writer.writeAll("\xef\xbf\xbd");
+            i += 1;
+        }
+    }
+    return out.toOwnedSlice();
+}
+
+fn sourceName(io: Io, a: A, path: []const u8) ![]const u8 {
+    if (!std.fs.path.isAbsolute(path)) return path;
+    const cwd = try Io.Dir.cwd().realPathFileAlloc(io, ".", a);
+    return std.fs.path.relativeAlloc(a, cwd, null, cwd, path);
+}
+
+test "TOML coercions, optional empties, export omissions, and nested models" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const raw = try toml.parse(a,
+        \\display_full_path = "yes"
+        \\search_submodules = 1
+        \\search_paths = ["legacy"]
+        \\search_dirs = []
+        \\input_position = "Top"
+        \\vcs_providers = ["jj"]
+        \\unknown = "ignored"
+        \\sessions = [{name = 42, windows = [{command = true, panes = [{}]}]}]
+        \\[shortcuts]
+        \\ctrl-Q = "cancel"
+        \\[picker_colors]
+        \\prompt_color = {Rgb = [1, 2, 255]}
+    );
+    const config = try toml.decode(Config, a, raw);
+    try std.testing.expectEqual(true, config.display_full_path.?);
+    try std.testing.expectEqual(true, config.search_submodules.?);
+    try std.testing.expectEqual(@as(usize, 0), config.search_dirs.?.len);
+    try std.testing.expect(config.bookmarks == null);
+    try std.testing.expectEqual(VcsProvider.jujutsu, config.vcs_providers.?[0]);
+    try std.testing.expectEqualStrings("42", config.sessions.?[0].name.?);
+    const exported = try toml.parse(a, try exportToml(a, &config, false));
+    try std.testing.expect(exported.table.get("input_position") == null);
+    try std.testing.expect(exported.table.get("search_paths") == null);
+    try std.testing.expectEqualStrings("cancel", exported.table.get("shortcuts").?.table.get("ctrl-q").?.string);
+    try std.testing.expectEqualStrings("#0102FF", exported.table.get("picker_colors").?.table.get("prompt_color").?.string);
+}
+
+test "merge recursively replaces arrays before validation" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var raw = try toml.parse(a, "display_full_path = []\nsessions = [{ name = 'old' }]\n[picker_colors]\ninfo_color = 'red'\nprompt_color = 'blue'");
+    try toml.merge(a, &raw, try toml.parse(a, "display_full_path = true\nsessions = []\n[picker_colors]\nprompt_color = 'green'"));
+    const config = try toml.decode(Config, a, raw);
+    try std.testing.expectEqual(true, config.display_full_path.?);
+    try std.testing.expectEqual(@as(usize, 0), config.sessions.?.len);
+    try std.testing.expectEqual(Color.red, config.picker_colors.?.info_color.?);
+    try std.testing.expectEqual(Color.green, config.picker_colors.?.prompt_color.?);
+    try std.testing.expectError(error.InvalidToml, toml.parse(a, "x = ["));
+    try std.testing.expectError(error.InvalidConfigType, toml.decode(Config, a, try toml.parse(a, "display_full_path = []")));
+    try std.testing.expectError(error.InvalidConfigEnum, toml.decode(Config, a, try toml.parse(a, "session_sort_order = 'alphabetical'")));
+    try std.testing.expectError(error.InvalidKey, toml.decode(Config, a, try toml.parse(a, "[shortcuts]\ninvalid = 'cancel'")));
+}
+
+test "key aliases and ASCII folding match reference" {
+    try std.testing.expect(std.meta.eql(try parseKey("SHIFT-CTRL-X"), Key{ .code = .{ .char = 'x' }, .modifiers = .{ .shift = true, .ctrl = true } }));
+    try std.testing.expect(std.meta.eql(try parseKey("ignored-ins"), Key{ .code = .insert }));
+    try std.testing.expectError(error.InvalidKey, parseKey("é"));
+    try std.testing.expectError(error.InvalidKey, parseKey("ctrl--"));
+    try std.testing.expectError(error.InvalidKey, parseKey("f13"));
+}
+
+test "defaults and shortcut overrides" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const options = try pickerOptions(a, &.{ .shortcuts = &.{.{ .key = try parseKey("ctrl-c"), .action = .noop }} });
+    try std.testing.expectEqual(@as(usize, 18), options.bindings.len);
+    try std.testing.expectEqual(PickerAction.noop, options.bindings[0].action);
+    try std.testing.expectEqual(InputPosition.bottom, options.input_position);
+    try std.testing.expectEqual(Color.light_blue, options.colors.highlight_color.?);
+    try std.testing.expectEqual(Color.white, try parseColor("bright-grey"));
+}
+
+test "path expansion preserves empty variables, literal defaults, and variable tildes" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var env: Env = .init(a);
+    try env.put("HOME", "/a home");
+    try env.put("EMPTY", "");
+    try env.put("VAR", "~");
+    try env.put("项目", "项目");
+    const io = std.testing.io;
+    try std.testing.expectEqualStrings("/a home/项目", try expandPath(io, a, &env, "~/${项目}"));
+    try std.testing.expectEqualStrings("项目🙂", try expandPath(io, a, &env, "$项目🙂"));
+    try std.testing.expectEqualStrings("~/x", try expandPath(io, a, &env, "$VAR/x"));
+    try std.testing.expectEqualStrings("/x", try expandPath(io, a, &env, "${EMPTY:-fallback}/x"));
+    try std.testing.expectEqualStrings("$HOME", try expandPath(io, a, &env, "${ABSENT:-$HOME}"));
+    try std.testing.expectEqualStrings("$HOME/${broken", try expandPath(io, a, &env, "$$HOME/${broken"));
+    try std.testing.expectEqualStrings("~someone/x", try expandPath(io, a, &env, "~someone/x"));
+    try std.testing.expectError(error.MissingEnvironmentVariable, expandPath(io, a, &env, "$ABSENT"));
+}
+
+test "enum tables, sequence structs, precise timestamps, and UTF-8 file conversion" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const cfg = try toml.decode(Config, a, try toml.parse(a,
+        \\default_session = 1979-05-27t07:32:00.1234567899z
+        \\search_dirs = [["a", 2]]
+        \\sessions = [["一", "b", []]]
+        \\session_sort_order = {LastAttached = false}
+        \\vcs_providers = [{jj = 1}]
+        \\[shortcuts]
+        \\ctrl-c = {cancel = []}
+    ));
+    try std.testing.expectEqualStrings("1979-05-27T07:32:00.123456789Z", cfg.default_session.?);
+    try std.testing.expectEqualStrings("一", cfg.sessions.?[0].name.?);
+    try std.testing.expectEqual(@as(usize, 2), cfg.search_dirs.?[0].depth);
+    try std.testing.expectEqual(Order.last_attached, cfg.session_sort_order.?);
+    try std.testing.expectEqual(VcsProvider.jujutsu, cfg.vcs_providers.?[0]);
+    try std.testing.expectError(error.InvalidColor, toml.decode(Color, a, (try toml.parse(a, "x = {Indexed = '5'}")).table.get("x").?));
+    try std.testing.expectEqualStrings("\xef\xbf\xbdA\xef\xbf\xbd", try utf8Lossy(a, "\xe1\x80A\xff"));
+    try std.testing.expectEqualStrings("a\xef\xbf\xbd\xef\xbf\xbd\xef\xbf\xbdb", try utf8Lossy(a, "a\xed\xa0\x80b"));
+}
+
+test "location precedence, raw saves, canonical roots, bookmarks, and valid mark allocation" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const root = try tmp.dir.realPathFileAlloc(io, ".", a);
+    var env: Env = .init(a);
+    try env.put("HOME", root);
+    try env.put("XDG_CONFIG_HOME", try std.fs.path.join(a, &.{ root, "platform" }));
+    const legacy = try std.fs.path.join(a, &.{ root, ".config/tms" });
+    try Io.Dir.cwd().createDirPath(io, legacy);
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fs.path.join(a, &.{ legacy, "config.toml" }), .data = "display_full_path = []\nsearch_paths = ['~']\n[marks]\n'0' = '/a/path/that/does/not/exist'\n[ picker_colors ]\ninfo_color = 'red'\n" });
+    const platform = (try platformDir(a, &env)).?;
+    try Io.Dir.cwd().createDirPath(io, try std.fs.path.join(a, &.{ platform, "tms" }));
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fs.path.join(a, &.{ platform, "tms/config.toml" }), .data = "display_full_path = true\nsearch_dirs = []\nunknown = 4\n[picker_colors]\nprompt_color = 'green'\n" });
+    var loaded = try load(io, a, &env);
+    try std.testing.expectEqual(true, loaded.display_full_path.?);
+    try std.testing.expectEqual(Color.red, loaded.picker_colors.?.info_color.?);
+    try std.testing.expectEqual(Color.green, loaded.picker_colors.?.prompt_color.?);
+    try std.testing.expectEqualStrings(root, (try searchRoots(io, a, &env, &loaded))[0].path);
+    try commit(io, a, &env, &loaded, .{ .settings = .{ .paths = &.{root}, .max_depths = &.{ 0, 9 }, .default_session = "a.b-c", .excluded = &.{ "vendor*", "vendor*" } } });
+    try commit(io, a, &env, &loaded, .{ .settings = .{ .max_depths = &.{7} } });
+    try std.testing.expectEqual(@as(usize, 0), loaded.search_dirs.?[0].depth);
+    try std.testing.expectEqualStrings("a_b-c", loaded.default_session.?);
+    try std.testing.expectEqual(@as(usize, 2), loaded.excluded_dirs.?.len);
+    try commit(io, a, &env, &loaded, .{ .set_mark = .{ .index = null, .path = root } });
+    try std.testing.expectEqualStrings(root, loaded.marks.?.get("0").?);
+    try commit(io, a, &env, &loaded, .{ .set_mark = .{ .index = null, .path = root } });
+    try std.testing.expectEqual(@as(usize, 2), (try validMarks(io, a, &env, &loaded)).len);
+    try commit(io, a, &env, &loaded, .{ .add_bookmark = root });
+    try commit(io, a, &env, &loaded, .{ .add_bookmark = root });
+    try commit(io, a, &env, &loaded, .{ .add_bookmark = "$ABSENT/invalid" });
+    try std.testing.expectEqual(@as(usize, 2), loaded.bookmarks.?.len);
+    try std.testing.expectEqual(@as(usize, 1), (try bookmarkPaths(io, a, &env, &loaded)).len);
+    try commit(io, a, &env, &loaded, .{ .delete_bookmark = root });
+    try commit(io, a, &env, &loaded, .{ .delete_mark = 0 });
+    try commit(io, a, &env, &loaded, .clear_marks);
+    const reloaded = try load(io, a, &env);
+    try std.testing.expect(reloaded.marks != null); // The earlier source still contributes its raw mark.
+    try std.testing.expectEqualStrings("$ABSENT/invalid", reloaded.bookmarks.?[0]);
+    const saved = try load(io, a, &env);
+    try std.testing.expect(saved.input_position == null);
+    try env.put("TMS_CONFIG_FILE", try std.fs.path.join(a, &.{ root, "isolated.toml" }));
+    var isolated = try load(io, a, &env);
+    try std.testing.expect(isolated.display_full_path == null);
+    try std.testing.expectError(error.NoDefaultSearchPath, searchRoots(io, a, &env, &isolated));
+    isolated.search_dirs = &.{.{ .path = "/no/such/directory", .depth = 1 }};
+    try std.testing.expectError(error.NoValidSearchPath, searchRoots(io, a, &env, &isolated));
+    try std.testing.expectError(error.RemoveWithoutExclusions, commit(io, a, &env, &isolated, .{ .settings = .{ .remove = &.{"missing"} } }));
 }

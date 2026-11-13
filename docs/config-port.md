@@ -1,0 +1,128 @@
+# Configuration and CLI port
+
+## Public contracts
+
+`src/config.zig` keeps every raw field optional. Empty lists and maps do not become
+absent values. `commit` saves the merged raw model. `exportToml` resolves defaults
+and omits `input_position` and deprecated `search_paths`.
+
+`src/config/toml.zig` copies native TOML values into the command allocator, merges
+tables recursively, and replaces arrays before typed decoding. Unknown fields do
+not survive a save. Decoding retains the config crate's Boolean, number, string,
+enum-table, and sequence-struct conversions. Ratatui's legacy color maps retain
+their stricter untagged decoding.
+
+`load` selects only `TMS_CONFIG_FILE` when present. Otherwise it loads
+`~/.config/tms/config.toml` and then the platform config location. Saving selects
+the override or platform location. Missing files are optional. Extension inference,
+unregistered file extensions, a UTF-8 BOM, and lossy UTF-8 file decoding follow the
+reference's TOML-only config source.
+
+Path expansion supports braced and unbraced variables, literal `${NAME:-fallback}`
+defaults, escaped dollars, and a leading tilde. Empty variables remain empty even
+when a fallback exists. A variable-supplied tilde does not expand. Variable names
+use Unicode 17 alphanumeric properties, matching the pinned Rust toolchain.
+Expansion does not require an existing path. Roots, bookmarks, and valid marks
+canonicalize separately.
+
+Automatic mark allocation considers only valid numeric indices with usable paths.
+Raw marks retain invalid paths for explicit lookup. Bookmark edits compare literal
+stored strings and suppress duplicate additions.
+
+`src/cli/spec.zig` defines command names, positional arguments, option names,
+descriptions, and enum values. Parsing, help, and static completion use that model.
+`complete` runs before ordinary parsing and supports Bash, Elvish, Fish,
+PowerShell, and Zsh. Dynamic session completion returns catalog visible keys,
+not session names. Mark completion includes only valid marks.
+
+## Diagnostic integration
+
+The frozen `parse` and `load` signatures remain unchanged.
+
+- `cli.parse` returns `error.InvalidArguments` and sets `cli.failure`.
+- `cli.complete` sets `cli.failure` for unsupported shells and an invalid completion index.
+- `config.load` sets `config.failure` when loading or deserialization fails.
+- Each failure is a typed `Diagnostic` with `text` and `exit_code`.
+- Each entry point clears its previous failure before work.
+- `cli.parseDetailed` returns `ParseResult.command` or `ParseResult.diagnostic`.
+- `config.loadDetailed` returns `LoadResult.config` or `LoadResult.diagnostic`.
+- `config.editDiagnostic(err)` formats missing paths, access errors, missing or invalid search roots, unnamed root marks, and removal without an exclusion list.
+
+The application can keep calling the frozen entry points. On failure, the parent
+must write the relevant diagnostic's `text` to stderr and exit with `exit_code`.
+It must not return the Zig error after printing, because that adds an error trace.
+Argument errors exit 2. Config errors exit 1. The reference's unsupported-completion
+and remove-without-exclusions failures retain exit 101.
+
+The driver in `src/cli/driver.zig` demonstrates this handling without changing
+`main.zig` or `app.zig`. It supports config, bookmark, and non-opening mark commands.
+The parent still owns version consolidation and the default native-parser build path.
+
+## Verification
+
+Native build and module tests:
+
+```sh
+mise exec -- zig build -Dtomlc17=vendor/tomlc17
+mise exec -- zig build test -Dtomlc17=vendor/tomlc17
+```
+
+Build the scoped driver with local domain modules:
+
+```sh
+mise exec -- python3 src/cli/build_driver.py
+```
+
+`--domains /absolute/path/to/src` selects integrated session, repository, tmux,
+and process modules without changing this worktree's files.
+
+Compare with a separately built Rust reference:
+
+```sh
+mise exec -- python3 src/cli/check.py \
+  --bin .zig-cache/config-driver \
+  --rust /absolute/path/to/target/debug/tms \
+  --dynamic
+```
+
+Executed results:
+
+- 615 static completion probes across all five shells passed.
+- All five registration scripts matched after executable-path substitution.
+- 13 exported configuration comparisons passed.
+- 42 long, short, and generated-help comparisons passed.
+- 23 settings, bookmark, and mark persistence comparisons passed.
+- 200 dynamic visible-key and valid-mark completion probes passed against the parent's integrated domain modules.
+- The unchanged compatibility runner passed `help`, `argument-errors`, `config-defaults`, `config-edit`, `config-remove-without-exclusions`, `config-missing-path`, `invalid-config-type`, `invalid-config-enum`, `invalid-config-keymap`, `config-type-coercion`, and `unknown-config-key`.
+- Config test artifacts compiled for `x86_64-linux-gnu` and `aarch64-linux-musl`. These were compile-only checks, not Linux runtime tests.
+
+The module tests cover malformed TOML, merge precedence and replacement,
+absent versus empty values, platform locations, raw saves, defaults, edits,
+canonical paths, invalid marks, Unicode variable names, keys, colors, enum-table
+and sequence-struct coercions, and nanosecond timestamp conversion.
+
+No fixture or golden changed. Neither executable reads a golden.
+
+## Remaining compatibility exception
+
+The unchanged `invalid-toml` fixture fails only on diagnostic text. Both binaries
+reject the file, exit 1, and leave state unchanged. The Rust parser prints a
+source excerpt, column, and an unclosed-array message. The pinned native
+parser prints `(line 2) missing value`. The port reports the native parser's
+diagnostic rather than recognizing the fixture or synthesizing a Rust parser error.
+This exception needs the parent's explicit disposition.
+
+This workstream does not claim the full application, ranking, or terminal suite.
+Those remain integration checks owned by the parent.
+
+## Attribution
+
+`vendor/tomlc17/README.md` records the native parser revision, source URLs,
+SHA-256 hashes, and MIT license.
+
+The shell registration templates adapt `clap_complete` 4.5.55
+`src/env/shells.rs`. Their MIT notice is in `src/cli/registration/LICENSE`.
+
+`src/config/generate_unicode.py` derives alphanumeric ranges from the pinned
+Rust standard library's Unicode 17 database. The checked-in table needs no Rust
+runtime. Its Unicode notice is in `src/config/UNICODE-LICENSE`.
