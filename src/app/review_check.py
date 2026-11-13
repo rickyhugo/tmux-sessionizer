@@ -2,8 +2,11 @@
 """Check reviewed init/listing regressions on private compatibility sockets."""
 
 import argparse
+from contextlib import contextmanager
 import importlib.util
+import os
 from pathlib import Path
+import stat
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -11,6 +14,65 @@ spec = importlib.util.spec_from_file_location("compat", ROOT / "scripts/compat.p
 compat = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(compat)
 TEMPLATES = ROOT / "src/repos/template"
+INVALID_BRANCHES = {
+    "branch-empty": "",
+    "branch-space": "a b",
+    "branch-dots": "a..b",
+    "branch-newline": "feature\n",
+}
+BRANCHES = {
+    "branch-qualified": ("refs/heads/custom", "refs/heads/custom"),
+    "branch-reserved": ("HEAD", None),
+    "branch-qualified-reserved": ("refs/heads/HEAD", None),
+    "branch-feature": ("feature/branch", "refs/heads/feature/branch"),
+    "branch-unicode": ("项目", "refs/heads/项目"),
+    "branch-hyphen": ("-invalid", "refs/heads/-invalid"),
+    "branch-quotes": ('"quoted"', 'refs/heads/"quoted"'),
+    "branch-at": ("@", "refs/heads/@"),
+}
+
+
+@contextmanager
+def fixed_umask():
+    previous = os.umask(0o022)
+    try:
+        yield
+    finally:
+        os.umask(previous)
+
+
+def check_layout(metadata, head="refs/heads/main"):
+    files = {"HEAD", "config"}
+    for path in TEMPLATES.rglob("*"):
+        if path.is_file() and path.name not in ("README.md", "LICENSE"):
+            relative = path.relative_to(TEMPLATES)
+            files.add(str(relative))
+            assert (metadata / relative).read_bytes() == path.read_bytes(), relative
+    assert files == {
+        str(path.relative_to(metadata))
+        for path in metadata.rglob("*")
+        if path.is_file()
+    }
+    assert (metadata / "HEAD").read_text() == f"ref: {head}\n"
+    assert {
+        str(path.relative_to(metadata)) for path in metadata.rglob("*") if path.is_dir()
+    } == {
+        "info",
+        "hooks",
+        "objects",
+        "objects/info",
+        "objects/pack",
+        "refs",
+        "refs/heads",
+        "refs/tags",
+    }
+    config = (metadata / "config").read_text().lower()
+    assert "sha256" not in config
+    assert "sharedrepository" not in config
+    assert "denynonfastforwards" not in config
+    for path in [metadata, *metadata.rglob("*")]:
+        expected_mode = 0o755 if path.is_dir() else 0o644
+        assert stat.S_IMODE(path.stat().st_mode) == expected_mode, path
 
 
 def check_init(workspace, kind):
@@ -107,6 +169,71 @@ def check_listing(workspace, name, reference):
     assert result.stdout == expected, repr(result.stdout)
 
 
+def check_config_sources(workspace, kind):
+    global_config = workspace.root / "global-config"
+    global_config.write_text("[init]\n defaultBranch = configured\n")
+    config_only = workspace.root / "config-only"
+    config_only.write_text("" if kind == "config-only-empty" else "[unclosed\n")
+    workspace.env.update(
+        GIT_CONFIG_COUNT="0",
+        GIT_CONFIG_GLOBAL=str(global_config),
+        GIT_CONFIG=str(config_only),
+    )
+    expected, status = "refs/heads/configured", 0
+    if kind == "config-global-invalid":
+        global_config.write_text("[unclosed\n")
+        expected, status = "refs/heads/main", 1
+    elif kind == "config-count-invalid":
+        workspace.env["GIT_CONFIG_COUNT"] = "not a count"
+        expected, status = "refs/heads/main", 1
+    elif kind == "config-global-include":
+        included = workspace.root / "included-config"
+        included.write_text("[init]\n defaultBranch = configured\n")
+        global_config.write_text(f"[include]\n path = {included}\n")
+    elif kind == "config-environment-overrides-global":
+        workspace.env.update(GIT_CONFIG_COUNT="1", GIT_CONFIG_VALUE_0="environment")
+        expected = "refs/heads/environment"
+    result = workspace.run(["tms", "init-repo", "fresh"])
+    assert result.returncode == status, result
+    check_layout(workspace.root / "search/fresh/.git", expected)
+    assert len(workspace.state([])["sessions"]) == (0 if status else 1)
+
+
+def check_failure(workspace, kind):
+    workspace.env["GIT_CONFIG_VALUE_0"] = INVALID_BRANCHES[kind]
+    result = workspace.run(["tms", "init-repo", "fresh"])
+    assert result.returncode == 1, result
+    check_layout(workspace.root / "search/fresh/.git")
+    assert not workspace.state([])["sessions"]
+
+
+def check_shared(workspace):
+    workspace.env.update(
+        GIT_CONFIG_COUNT="2",
+        GIT_CONFIG_KEY_1="core.sharedRepository",
+        GIT_CONFIG_VALUE_1="group",
+    )
+    result = workspace.run(["tms", "init-repo", "fresh"])
+    assert result.returncode == 0, result
+    check_layout(workspace.root / "search/fresh/.git")
+    assert len(workspace.state([])["sessions"]) == 1
+
+
+def check_branch(workspace, kind):
+    value, expected = BRANCHES.get(kind, ("main", "refs/heads/main"))
+    workspace.env["GIT_CONFIG_VALUE_0"] = value
+    if kind == "test-default-branch":
+        workspace.env["GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME"] = "wrong"
+    elif kind == "config-parameters":
+        workspace.env["GIT_CONFIG_PARAMETERS"] = "'init.defaultBranch=wrong'"
+    elif kind == "config-parameters-invalid":
+        workspace.env["GIT_CONFIG_PARAMETERS"] = "not quoted"
+    result = workspace.run(["tms", "init-repo", "fresh"])
+    assert result.returncode == (0 if expected else 1), result
+    check_layout(workspace.root / "search/fresh/.git", expected or "refs/heads/main")
+    assert len(workspace.state([])["sessions"]) == (1 if expected else 0)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", type=Path, default=ROOT / "zig-out/bin/tms")
@@ -129,10 +256,32 @@ def main():
         "template-environment",
         "default-branch",
     ]
+    config_cases = [
+        "config-only-empty",
+        "config-only-invalid",
+        "config-global-invalid",
+        "config-count-invalid",
+        "config-global-include",
+        "config-environment-overrides-global",
+    ]
+    branch_cases = list(BRANCHES) + [
+        "test-default-branch",
+        "config-parameters",
+        "config-parameters-invalid",
+    ]
     failures = 0
     for binary, reference in binaries:
-        for case in cases + ["quo'te,ui", "'edge'", " a 'b,c "]:
-            with tempfile.TemporaryDirectory(prefix="tms-review-") as directory:
+        for case in (
+            cases
+            + config_cases
+            + list(INVALID_BRANCHES)
+            + branch_cases
+            + ["shared-group", "quo'te,ui", "'edge'", " a 'b,c "]
+        ):
+            with (
+                tempfile.TemporaryDirectory(prefix="tms-review-") as directory,
+                fixed_umask(),
+            ):
                 workspace = compat.Workspace(Path(directory).resolve(), binary)
                 try:
                     (workspace.root / "config.toml").write_text(
@@ -142,6 +291,14 @@ def main():
                     )
                     if case in cases:
                         check_init(workspace, case)
+                    elif case in config_cases:
+                        check_config_sources(workspace, case)
+                    elif case in INVALID_BRANCHES:
+                        check_failure(workspace, case)
+                    elif case == "shared-group":
+                        check_shared(workspace)
+                    elif case in branch_cases:
+                        check_branch(workspace, case)
                     else:
                         check_listing(workspace, case, reference)
                     print(f"PASS {'Rust' if reference else 'Zig'} {case}")
